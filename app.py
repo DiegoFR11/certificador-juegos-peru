@@ -99,12 +99,15 @@ st.write(
 
 template_path = find_template()
 
-with st.expander("Verificación de archivos del sistema"):
-    st.write(f"Carpeta base: `{BASE_DIR}`")
-    st.write(f"Script encontrado: `{SCRIPT_PATH.exists()}`")
-    st.write(f"Ruta del script: `{SCRIPT_PATH}`")
-    st.write(f"Plantilla encontrada: `{template_path is not None}`")
-    st.write(f"Ruta de plantilla: `{template_path}`")
+DEBUG_MODE = False
+
+if DEBUG_MODE:
+    with st.expander("Verificación de archivos del sistema"):
+        st.write(f"Carpeta base: `{BASE_DIR}`")
+        st.write(f"Script encontrado: `{SCRIPT_PATH.exists()}`")
+        st.write(f"Ruta del script: `{SCRIPT_PATH}`")
+        st.write(f"Plantilla encontrada: `{template_path is not None}`")
+        st.write(f"Ruta de plantilla: `{template_path}`")
 
 uploaded_files = st.file_uploader(
     "Sube los certificados PDF",
