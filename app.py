@@ -1,6 +1,7 @@
 from pathlib import Path
 import shutil
 import tempfile
+from datetime import datetime
 
 import pandas as pd
 import streamlit as st
@@ -22,7 +23,6 @@ YELLOW = "#FFC72C"
 YELLOW_DARK = "#DDA600"
 BLACK = "#111111"
 WHITE = "#FFFFFF"
-SOFT_BLACK = "#1F1F1F"
 LIGHT_BG = "#FFF9E8"
 BORDER = "#E5E7EB"
 
@@ -38,6 +38,16 @@ AUDIT_COLUMNS = [
 ]
 
 
+DOC_TYPE_LABELS = {
+    "QUINEL_GAME_CERTIFICATE": "Certificado de juego - QUINEL Ltd",
+    "GLI_GAME_CERTIFICATE": "Certificado de juego - Gaming Laboratories International (GLI)",
+    "RNG_GNA": "Certificado RNG/GNA",
+    "MINCETUR_RESOLUTION": "Resolución Directoral MINCETUR",
+    "UNKNOWN": "No identificado",
+    "ERROR": "Error de procesamiento",
+}
+
+
 def init_session_state():
     defaults = {
         "processed": False,
@@ -49,6 +59,8 @@ def init_session_state():
         "audit_downloaded": False,
         "uploader_key": 0,
         "last_error": None,
+        "processed_file_names": [],
+        "processed_at": None,
     }
 
     for key, value in defaults.items():
@@ -65,6 +77,8 @@ def reset_results():
     st.session_state.excel_downloaded = False
     st.session_state.audit_downloaded = False
     st.session_state.last_error = None
+    st.session_state.processed_file_names = []
+    st.session_state.processed_at = None
 
 
 def reset_uploader():
@@ -95,6 +109,40 @@ def audit_rows_to_dataframe(audit_rows):
             df[column] = ""
 
     return df[AUDIT_COLUMNS]
+
+
+def get_result_summary(df):
+    if df is None or df.empty:
+        return {
+            "total_pdfs": 0,
+            "ok_count": 0,
+            "revisar_count": 0,
+            "error_count": 0,
+            "total_games": 0,
+            "overall_status": "SIN_RESULTADOS",
+        }
+
+    total_pdfs = len(df)
+    ok_count = int((df["status"] == "OK").sum()) if "status" in df.columns else 0
+    revisar_count = int((df["status"] == "REVISAR").sum()) if "status" in df.columns else 0
+    error_count = int((df["status"] == "ERROR").sum()) if "status" in df.columns else 0
+    total_games = int(pd.to_numeric(df.get("extracted_games", 0), errors="coerce").fillna(0).sum())
+
+    if error_count > 0:
+        overall_status = "ERROR"
+    elif revisar_count > 0:
+        overall_status = "REVISAR"
+    else:
+        overall_status = "OK"
+
+    return {
+        "total_pdfs": total_pdfs,
+        "ok_count": ok_count,
+        "revisar_count": revisar_count,
+        "error_count": error_count,
+        "total_games": total_games,
+        "overall_status": overall_status,
+    }
 
 
 def render_css():
@@ -129,6 +177,31 @@ def render_css():
 
             section[data-testid="stSidebar"] hr {{
                 border-color: rgba(255, 199, 44, 0.35);
+            }}
+
+            /* Botones del sidebar: corrige el problema de texto blanco sobre fondo claro. */
+            section[data-testid="stSidebar"] div.stButton > button {{
+                background: var(--micasino-yellow) !important;
+                color: #111111 !important;
+                border: 1px solid var(--micasino-yellow) !important;
+                border-radius: 14px !important;
+                height: 3rem !important;
+                font-weight: 900 !important;
+                box-shadow: 0 7px 16px rgba(255, 199, 44, 0.22) !important;
+            }}
+
+            section[data-testid="stSidebar"] div.stButton > button:hover {{
+                background: var(--micasino-yellow-dark) !important;
+                color: #111111 !important;
+                border: 1px solid #FFFFFF !important;
+            }}
+
+            section[data-testid="stSidebar"] div.stButton > button:disabled,
+            section[data-testid="stSidebar"] div.stButton > button[disabled] {{
+                background: #3A3A3A !important;
+                color: #BDBDBD !important;
+                border: 1px solid #555555 !important;
+                opacity: 1 !important;
             }}
 
             .brand-hero {{
@@ -225,6 +298,21 @@ def render_css():
                 font-weight: 650;
             }}
 
+            .next-step-card {{
+                padding: 1.1rem 1.2rem;
+                border-radius: 18px;
+                background: #111111;
+                color: #FFFFFF;
+                border: 2px solid var(--micasino-yellow);
+                box-shadow: 0 10px 24px rgba(17, 17, 17, 0.12);
+                margin-top: 1rem;
+                margin-bottom: 1rem;
+            }}
+
+            .next-step-card strong {{
+                color: var(--micasino-yellow);
+            }}
+
             .file-chip {{
                 background: #111111;
                 color: #FFFFFF;
@@ -234,6 +322,28 @@ def render_css():
                 margin: 0.25rem 0.25rem 0.25rem 0;
                 font-size: 0.86rem;
                 border: 1px solid var(--micasino-yellow);
+            }}
+
+            .step-flow {{
+                display: flex;
+                gap: 0.6rem;
+                flex-wrap: wrap;
+                margin-bottom: 1rem;
+            }}
+
+            .step-item {{
+                background: #FFFFFF;
+                border: 1px solid var(--micasino-border);
+                border-radius: 999px;
+                padding: 0.5rem 0.9rem;
+                color: #111111;
+                font-weight: 800;
+                font-size: 0.88rem;
+            }}
+
+            .step-item.active {{
+                background: var(--micasino-yellow);
+                border: 1px solid #111111;
             }}
 
             div[data-testid="stMetric"] {{
@@ -271,6 +381,15 @@ def render_css():
                 background: var(--micasino-yellow-dark);
                 color: #111111;
                 border: 1px solid #111111;
+            }}
+
+            div.stButton > button:disabled,
+            div.stDownloadButton > button:disabled {{
+                background: #E5E7EB !important;
+                color: #4B5563 !important;
+                border: 1px solid #9CA3AF !important;
+                opacity: 1 !important;
+                box-shadow: none !important;
             }}
 
             .stTabs [data-baseweb="tab-list"] {{
@@ -355,11 +474,9 @@ def render_sidebar():
 
         st.divider()
 
-        st.markdown("### Formatos soportados")
-        st.caption("✅ QUINEL")
-        st.caption("✅ GLI")
-        st.caption("🟡 RNG/GNA: detección en progreso")
-        st.caption("⚪ Resoluciones MINCETUR: pendiente")
+        st.markdown("### Entidades certificadoras soportadas")
+        st.caption("✅ QUINEL Ltd")
+        st.caption("✅ Gaming Laboratories International (GLI)")
 
         st.divider()
 
@@ -391,10 +508,139 @@ def style_audit_table(df):
     return df.style.apply(color_status, axis=1)
 
 
+def render_step_flow(active_step):
+    steps = [
+        (1, "Cargar PDFs"),
+        (2, "Procesar"),
+        (3, "Validar auditoría"),
+        (4, "Descargar archivos"),
+    ]
+    html = '<div class="step-flow">'
+    for number, label in steps:
+        cls = "step-item active" if number == active_step else "step-item"
+        html += f'<span class="{cls}">{number}. {label}</span>'
+    html += "</div>"
+    st.markdown(html, unsafe_allow_html=True)
+
+
+def render_metrics(summary):
+    col1, col2, col3, col4, col5 = st.columns(5)
+    col1.metric("PDFs", summary["total_pdfs"])
+    col2.metric("OK", summary["ok_count"])
+    col3.metric("Revisar", summary["revisar_count"])
+    col4.metric("Errores", summary["error_count"])
+    col5.metric("Juegos", summary["total_games"])
+
+
+def render_status_message(summary):
+    if summary["overall_status"] == "ERROR":
+        st.markdown(
+            """
+            <div class="error-card">
+                Se generó la salida, pero hay certificados con error. Revisa la auditoría antes de usar el Excel.
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+    elif summary["overall_status"] == "REVISAR":
+        st.markdown(
+            """
+            <div class="warning-card">
+                El Excel fue generado, pero hay certificados marcados como REVISAR. Valida la auditoría antes de continuar.
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+    elif summary["overall_status"] == "OK":
+        st.markdown(
+            """
+            <div class="success-card">
+                Proceso completado correctamente. Ya puedes descargar el Excel completado y el CSV de auditoría.
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+
+
+def render_download_buttons(prefix=""):
+    col1, col2 = st.columns(2)
+
+    with col1:
+        st.download_button(
+            label="Descargar Excel completado",
+            data=st.session_state.excel_bytes,
+            file_name="B2B_TEMPLATE_GAMES_INTEGRATIONS_COMPLETADO.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            type="primary",
+            use_container_width=True,
+            disabled=st.session_state.excel_downloaded,
+            on_click=mark_excel_downloaded,
+            key=f"{prefix}_download_excel",
+        )
+
+        if st.session_state.excel_downloaded:
+            st.caption("Excel descargado. Botón bloqueado para evitar descargas duplicadas.")
+
+    with col2:
+        st.download_button(
+            label="Descargar CSV de auditoría",
+            data=st.session_state.audit_bytes,
+            file_name="auditoria_certificados.csv",
+            mime="text/csv",
+            type="secondary",
+            use_container_width=True,
+            disabled=st.session_state.audit_downloaded,
+            on_click=mark_audit_downloaded,
+            key=f"{prefix}_download_audit",
+        )
+
+        if st.session_state.audit_downloaded:
+            st.caption("Auditoría descargada. Botón bloqueado para evitar descargas duplicadas.")
+
+
+def render_processed_summary_on_upload_tab():
+    df = st.session_state.audit_df.copy()
+    summary = get_result_summary(df)
+
+    st.markdown(
+        """
+        <div class="next-step-card">
+            <strong>Resultado listo.</strong><br>
+            La carga ya fue procesada. Revisa el resumen, descarga los archivos o abre la pestaña de auditoría para validar el detalle por PDF.
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    if st.session_state.processed_at:
+        st.caption(f"Último procesamiento: {st.session_state.processed_at}")
+
+    if st.session_state.processed_file_names:
+        with st.expander("PDFs procesados", expanded=False):
+            for file_name in st.session_state.processed_file_names:
+                st.write(f"📄 {file_name}")
+
+    render_metrics(summary)
+    st.write("")
+    render_status_message(summary)
+    render_download_buttons(prefix="upload_tab")
+
+    with st.expander("Vista rápida de auditoría", expanded=summary["overall_status"] != "OK"):
+        st.dataframe(style_audit_table(df), use_container_width=True, hide_index=True)
+
+    st.info("Para iniciar otro lote de PDFs, usa el botón 'Limpiar resultados' en el panel lateral.")
+
+
 def render_upload_tab():
     st.markdown('<div class="section-card">', unsafe_allow_html=True)
+    render_step_flow(active_step=1)
     st.subheader("1. Carga de certificados PDF")
     st.write("Sube uno o varios certificados. La herramienta procesará todos en un único Excel.")
+
+    if st.session_state.processed:
+        render_processed_summary_on_upload_tab()
+        st.markdown("</div>", unsafe_allow_html=True)
+        return
 
     uploaded_files = st.file_uploader(
         "Arrastra o selecciona tus certificados PDF",
@@ -407,8 +653,8 @@ def render_upload_tab():
         st.markdown(
             """
             <div class="info-card">
-                Carga certificados PDF para iniciar el proceso. Después podrás revisar la auditoría
-                y descargar el Excel completado junto con el CSV de control.
+                Carga certificados PDF para iniciar el proceso. Cuando los selecciones, aparecerá el botón
+                <strong>Procesar certificados</strong> en esta misma pantalla.
             </div>
             """,
             unsafe_allow_html=True,
@@ -421,7 +667,16 @@ def render_upload_tab():
     chips = "".join(f'<span class="file-chip">📄 {file.name}</span>' for file in uploaded_files)
     st.markdown(chips, unsafe_allow_html=True)
 
-    st.write("")
+    st.markdown(
+        """
+        <div class="next-step-card">
+            <strong>Siguiente paso:</strong> haz clic en <strong>Procesar certificados</strong>.
+            Al finalizar, verás el resumen, la auditoría y los botones de descarga en esta misma pantalla.
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
     process_clicked = st.button(
         "Procesar certificados",
         type="primary",
@@ -443,11 +698,14 @@ def render_upload_tab():
                     pdf_dir.mkdir(parents=True, exist_ok=True)
 
                     pdf_paths = []
+                    processed_file_names = []
+
                     for uploaded_file in uploaded_files:
                         pdf_path = pdf_dir / uploaded_file.name
                         with open(pdf_path, "wb") as file:
                             file.write(uploaded_file.getbuffer())
                         pdf_paths.append(pdf_path)
+                        processed_file_names.append(uploaded_file.name)
 
                     template_copy = tmpdir / TEMPLATE_PATH.name
                     shutil.copy(TEMPLATE_PATH, template_copy)
@@ -468,10 +726,11 @@ def render_upload_tab():
                     st.session_state.audit_rows = audit_rows
                     st.session_state.audit_df = audit_rows_to_dataframe(audit_rows)
                     st.session_state.processed = True
+                    st.session_state.processed_file_names = processed_file_names
+                    st.session_state.processed_at = datetime.now().strftime("%d-%m-%Y %H:%M")
 
                     reset_uploader()
 
-                st.success("Proceso finalizado correctamente.")
                 st.rerun()
 
             except Exception as exc:
@@ -481,6 +740,7 @@ def render_upload_tab():
 
 def render_results_tab():
     st.markdown('<div class="section-card">', unsafe_allow_html=True)
+    render_step_flow(active_step=3)
     st.subheader("2. Auditoría de procesamiento")
 
     if st.session_state.last_error:
@@ -506,52 +766,18 @@ def render_results_tab():
         return
 
     df = st.session_state.audit_df.copy()
+    summary = get_result_summary(df)
 
-    total_pdfs = len(df)
-    ok_count = int((df["status"] == "OK").sum()) if "status" in df.columns else 0
-    revisar_count = int((df["status"] == "REVISAR").sum()) if "status" in df.columns else 0
-    error_count = int((df["status"] == "ERROR").sum()) if "status" in df.columns else 0
-    total_games = int(pd.to_numeric(df.get("extracted_games", 0), errors="coerce").fillna(0).sum())
-
-    col1, col2, col3, col4, col5 = st.columns(5)
-    col1.metric("PDFs", total_pdfs)
-    col2.metric("OK", ok_count)
-    col3.metric("Revisar", revisar_count)
-    col4.metric("Errores", error_count)
-    col5.metric("Juegos", total_games)
-
+    render_metrics(summary)
     st.write("")
+    render_status_message(summary)
 
-    if error_count > 0:
-        st.markdown(
-            """
-            <div class="error-card">
-                Hay certificados con error. Revisa el mensaje de auditoría antes de usar el Excel.
-            </div>
-            """,
-            unsafe_allow_html=True,
-        )
-    elif revisar_count > 0:
-        st.markdown(
-            """
-            <div class="warning-card">
-                Hay certificados marcados como REVISAR. El Excel fue generado, pero conviene validar esos casos manualmente.
-            </div>
-            """,
-            unsafe_allow_html=True,
-        )
-    else:
-        st.markdown(
-            """
-            <div class="success-card">
-                Todos los certificados fueron procesados correctamente.
-            </div>
-            """,
-            unsafe_allow_html=True,
-        )
+    display_df = df.copy()
+    if "document_type" in display_df.columns:
+        display_df["document_type"] = display_df["document_type"].map(DOC_TYPE_LABELS).fillna(display_df["document_type"])
 
     st.dataframe(
-        style_audit_table(df),
+        style_audit_table(display_df),
         use_container_width=True,
         hide_index=True,
     )
@@ -561,6 +787,7 @@ def render_results_tab():
 
 def render_downloads_tab():
     st.markdown('<div class="section-card">', unsafe_allow_html=True)
+    render_step_flow(active_step=4)
     st.subheader("3. Descargas")
 
     if not st.session_state.processed:
@@ -575,37 +802,10 @@ def render_downloads_tab():
         st.markdown("</div>", unsafe_allow_html=True)
         return
 
-    col1, col2 = st.columns(2)
-
-    with col1:
-        st.download_button(
-            label="Descargar Excel completado",
-            data=st.session_state.excel_bytes,
-            file_name="B2B_TEMPLATE_GAMES_INTEGRATIONS_COMPLETADO.xlsx",
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            type="primary",
-            use_container_width=True,
-            disabled=st.session_state.excel_downloaded,
-            on_click=mark_excel_downloaded,
-        )
-
-        if st.session_state.excel_downloaded:
-            st.caption("Excel descargado. Botón bloqueado para evitar descargas duplicadas.")
-
-    with col2:
-        st.download_button(
-            label="Descargar CSV de auditoría",
-            data=st.session_state.audit_bytes,
-            file_name="auditoria_certificados.csv",
-            mime="text/csv",
-            type="secondary",
-            use_container_width=True,
-            disabled=st.session_state.audit_downloaded,
-            on_click=mark_audit_downloaded,
-        )
-
-        if st.session_state.audit_downloaded:
-            st.caption("Auditoría descargada. Botón bloqueado para evitar descargas duplicadas.")
+    df = st.session_state.audit_df.copy()
+    summary = get_result_summary(df)
+    render_status_message(summary)
+    render_download_buttons(prefix="downloads_tab")
 
     st.markdown("</div>", unsafe_allow_html=True)
 
@@ -625,7 +825,7 @@ def main():
 
     tab_upload, tab_results, tab_downloads = st.tabs(
         [
-            "📤 Cargar PDFs",
+            "📤 Cargar y procesar",
             "📋 Auditoría",
             "⬇️ Descargas",
         ]
