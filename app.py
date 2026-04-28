@@ -559,6 +559,43 @@ def render_css():
                 font-size: 0.85rem;
                 color: #D1D5DB !important;
             }}
+                        /* Botón Limpiar resultados en sidebar */
+            section[data-testid="stSidebar"] div.stButton > button {{
+                background-color: var(--mc-yellow) !important;
+                color: #000000 !important;
+                border: 2px solid var(--mc-yellow) !important;
+                border-radius: 14px !important;
+                font-weight: 800 !important;
+                opacity: 1 !important;
+                box-shadow: 0 8px 20px rgba(255, 199, 44, 0.25) !important;
+            }}
+
+            section[data-testid="stSidebar"] div.stButton > button p {{
+                color: #000000 !important;
+                font-weight: 800 !important;
+            }}
+
+            section[data-testid="stSidebar"] div.stButton > button:hover {{
+                background-color: #FFD84D !important;
+                color: #000000 !important;
+                border-color: #FFD84D !important;
+            }}
+
+            section[data-testid="stSidebar"] div.stButton > button:hover p {{
+                color: #000000 !important;
+            }}
+
+            section[data-testid="stSidebar"] div.stButton > button:disabled {{
+                background-color: var(--mc-yellow) !important;
+                color: #000000 !important;
+                border: 2px solid var(--mc-yellow) !important;
+                opacity: 0.75 !important;
+            }}
+
+            section[data-testid="stSidebar"] div.stButton > button:disabled p {{
+                color: #000000 !important;
+                font-weight: 800 !important;
+            }}
         </style>
         """,
         unsafe_allow_html=True,
