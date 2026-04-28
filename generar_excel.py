@@ -46,6 +46,20 @@ RE_REPORT_GAM = re.compile(r"PE_[A-Z]{3}\d+GAM\.\d+_REV\.\d+", re.I)
 RE_REPORT_RNG = re.compile(r"PE_[A-Z]{3}\d+RNG\.\d+_REV\.\d+", re.I)
 RE_VERSION = re.compile(r"\d+(?:\.\d+){1,3}")
 RE_ITEM = re.compile(r"G\d{3}", re.I)
+
+# Referencias GLI/MO.
+# Ejemplos válidos:
+# - MO-246-PPL-25-154-684
+# - MO-246-PPL-25-154-684(1)
+# - MO-246-PPL-25-154
+RE_GLI_REPORT_FULL = re.compile(
+    r"\b[A-Z]{2}-\d{3}-[A-Z]{3}-\d{2}-\d{2,3}-\d{3}(?:\(\d+\))?\b",
+    re.I,
+)
+RE_GLI_REPORT_SHORT = re.compile(
+    r"\b[A-Z]{2}-\d{3}-[A-Z]{3}-\d{2}-\d{2,3}\b",
+    re.I,
+)
 SPANISH_MONTHS = {
     "enero": "01",
     "febrero": "02",
@@ -103,6 +117,45 @@ def date_to_excel(value):
             return f"{day}-{month}-{year}"
 
     return value
+
+
+def extract_gli_report_reference(compact_text):
+    """
+    Extrae la referencia principal de certificados GLI.
+
+    Prioriza códigos completos como MO-246-PPL-25-154-684 sobre códigos
+    cortos de título como MO-246-PPL-25-154.
+    """
+    compact_text = clean(compact_text)
+
+    label_patterns = [
+        r"C[oó]digo\s+de\s+identificaci[oó]n\s+del\s+informe\s*:?\s*",
+        r"N[uú]mero\s+de\s+reporte\s*:?\s*",
+        r"Report\s+Reference\s*:?\s*",
+        r"Report\s+Number\s*:?\s*",
+    ]
+
+    for label in label_patterns:
+        m = re.search(label + f"({RE_GLI_REPORT_FULL.pattern})", compact_text, re.I)
+        if m:
+            return m.group(1).upper()
+
+    # Fallback: tomar el primer código completo disponible en el certificado.
+    candidates = RE_GLI_REPORT_FULL.findall(compact_text)
+    if candidates:
+        return candidates[0].upper()
+
+    # Último fallback: algunos títulos solo traen el código corto.
+    m = re.search(
+        r"CERTIFICADO\s+DE\s+CUMPLIMIENTO\s+No\.?\s*"
+        f"({RE_GLI_REPORT_SHORT.pattern})",
+        compact_text,
+        re.I,
+    )
+    if m:
+        return m.group(1).upper()
+
+    return ""
 
 
 def split_joined_unique_code(text):
@@ -235,46 +288,7 @@ def extract_header(full_text, pages):
 
     # GLI / MO style.
     if not report_reference:
-        m = re.search(
-            r"C[oó]digo de identificaci[oó]n del informe:\s*([A-Z]{2}-\d{3}-[A-Z]{3}-\d{2}-\d{2}-\d{3})",
-            compact,
-            re.I,
-        )
-        if m:
-            report_reference = m.group(1).upper()
-
-    if not report_reference:
-        m = re.search(
-            r"N[uú]mero de reporte\s+([A-Z]{2}-\d{3}-[A-Z]{3}-\d{2}-\d{2,3}-\d{3}(?:\(\d+\))?)",
-            compact,
-            re.I,
-        )
-        if m:
-            report_reference = m.group(1).upper()
-
-    # Fallback GLI adicional:
-    # Algunos certificados GLI colocan la referencia principal en el título:
-    # "CERTIFICADO DE CUMPLIMIENTO No. MO-246-PPL-25-154"
-    # y luego el código completo como "Código de identificación del informe: MO-246-PPL-25-154-684".
-    # Si el campo anterior no se capturó por variaciones del PDF, tomamos el código más completo disponible.
-    if not report_reference:
-        candidates = re.findall(
-            r"\b[A-Z]{2}-\d{3}-[A-Z]{3}-\d{2}-\d{2,3}-\d{3}(?:\(\d+\))?\b",
-            compact,
-            flags=re.I,
-        )
-        if candidates:
-            # Preferir el primer código completo encontrado, normalmente el de identificación del informe.
-            report_reference = candidates[0].upper()
-
-    if not report_reference:
-        m = re.search(
-            r"CERTIFICADO DE CUMPLIMIENTO\s+No\.\s*([A-Z]{2}-\d{3}-[A-Z]{3}-\d{2}-\d{2,3})",
-            compact,
-            re.I,
-        )
-        if m:
-            report_reference = m.group(1).upper()
+        report_reference = extract_gli_report_reference(compact)
 
     report_date = ""
 
@@ -568,30 +582,106 @@ def extract_games_from_lines(pages):
     return games
 
 
+def normalize_for_key(value):
+    """Normaliza texto para comparar juegos entre distintos extractores."""
+    value = clean(value).lower()
+    value = re.sub(r"\s+", " ", value)
+    return value.strip()
+
+
+def game_score(game):
+    """Puntaje para conservar el registro más completo."""
+    score = 0
+
+    if clean(game.get("game_name")):
+        score += 2
+    if clean(game.get("game_type")):
+        score += 1
+    if clean(game.get("sample")):
+        score += 1
+    if clean(game.get("unique_code")):
+        score += 3
+    if clean(game.get("item")):
+        score += 1
+
+    return score
+
+
+def game_identity_keys(game):
+    """
+    Genera llaves de identidad para detectar duplicados reales.
+
+    En GLI, el mismo juego puede salir desde un extractor como G001
+    y desde otro como GLI001. Por eso no basta deduplicar por item.
+    """
+    item = normalize_for_key(game.get("item"))
+    name = normalize_for_key(game.get("game_name"))
+    sample = normalize_for_key(game.get("sample"))
+    unique_code = normalize_for_key(game.get("unique_code"))
+
+    keys = []
+
+    if unique_code:
+        keys.append(("unique_code", unique_code))
+
+    if name and sample:
+        keys.append(("name_sample", name, sample))
+
+    if name:
+        keys.append(("name", name))
+
+    if item:
+        keys.append(("item", item))
+
+    return keys
+
+
 def dedupe_games(games):
     """
-    Deduplica por item. Si el mismo item sale por dos métodos,
-    se queda con el registro más completo.
+    Deduplica juegos por identidad lógica, no solo por item.
+
+    Prioridad:
+    1. Código único.
+    2. Nombre + versión.
+    3. Nombre.
+    4. Item como último recurso.
+
+    Esto evita que un certificado GLI de 30 juegos termine con 60 filas
+    cuando dos extractores leen la misma tabla con identificadores distintos.
     """
-    by_item = {}
+    key_to_game = {}
 
     for game in games:
-        item = game.get("item", "")
-        if not item:
+        keys = game_identity_keys(game)
+
+        if not keys:
             continue
 
-        current = by_item.get(item)
-        if current is None:
-            by_item[item] = game
-            continue
+        existing_games = [key_to_game[key] for key in keys if key in key_to_game]
 
-        current_score = sum(bool(current.get(k)) for k in ["game_name", "game_type", "sample", "unique_code"])
-        new_score = sum(bool(game.get(k)) for k in ["game_name", "game_type", "sample", "unique_code"])
+        if existing_games:
+            current_best = max(existing_games, key=game_score)
+            best = game if game_score(game) > game_score(current_best) else current_best
+        else:
+            best = game
 
-        if new_score > current_score:
-            by_item[item] = game
+        for key in keys:
+            key_to_game[key] = best
 
-    return [by_item[item] for item in sorted(by_item.keys())]
+    unique = []
+    seen_ids = set()
+
+    for game in key_to_game.values():
+        obj_id = id(game)
+
+        if obj_id not in seen_ids:
+            unique.append(game)
+            seen_ids.add(obj_id)
+
+    return sorted(
+        unique,
+        key=lambda g: normalize_for_key(g.get("item")) or normalize_for_key(g.get("game_name")),
+    )
 
 
 def extract_games(full_text, pages):
