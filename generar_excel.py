@@ -47,36 +47,6 @@ RE_REPORT_RNG = re.compile(r"PE_[A-Z]{3}\d+RNG\.\d+_REV\.\d+", re.I)
 RE_VERSION = re.compile(r"\d+(?:\.\d+){1,3}")
 RE_ITEM = re.compile(r"G\d{3}", re.I)
 
-# Referencias GLI/MO.
-# Ejemplos válidos:
-# - MO-246-PPL-25-154-684
-# - MO-246-PPL-25-154-684(1)
-# - MO-246-PPL-25-154
-RE_GLI_REPORT_FULL = re.compile(
-    r"\b[A-Z]{2}-\d{3}-[A-Z]{3}-\d{2}-\d{2,3}-\d{3}(?:\(\d+\))?\b",
-    re.I,
-)
-RE_GLI_REPORT_SHORT = re.compile(
-    r"\b[A-Z]{2}-\d{3}-[A-Z]{3}-\d{2}-\d{2,3}\b",
-    re.I,
-)
-SPANISH_MONTHS = {
-    "enero": "01",
-    "febrero": "02",
-    "marzo": "03",
-    "abril": "04",
-    "mayo": "05",
-    "junio": "06",
-    "julio": "07",
-    "agosto": "08",
-    "septiembre": "09",
-    "setiembre": "09",
-    "octubre": "10",
-    "noviembre": "11",
-    "diciembre": "12",
-}
-
-
 
 def clean(value):
     """Normaliza espacios y convierte None a texto vacío."""
@@ -86,76 +56,11 @@ def clean(value):
 
 
 def date_to_excel(value):
-    """Devuelve dd-mm-yyyy para fechas dd/mm/yyyy, dd-MMM-yy o '08 de abril de 2026'."""
-    value = clean(value)
-
-    m = re.search(r"(\d{2})/(\d{2})/(\d{4})", value)
-    if m:
-        return f"{m.group(1)}-{m.group(2)}-{m.group(3)}"
-
-    m = re.search(r"(\d{1,2})\s+de\s+([a-záéíóúñ]+)\s+de\s+(\d{4})", value, re.I)
-    if m:
-        day = m.group(1).zfill(2)
-        month = SPANISH_MONTHS.get(m.group(2).lower())
-        year = m.group(3)
-        if month:
-            return f"{day}-{month}-{year}"
-
-    m = re.search(r"(\d{1,2})-([A-Z]{3})-(\d{2,4})", value, re.I)
-    if m:
-        month_map = {
-            "JAN": "01", "ENE": "01", "FEB": "02", "MAR": "03", "APR": "04", "ABR": "04",
-            "MAY": "05", "JUN": "06", "JUL": "07", "AUG": "08", "AGO": "08", "SEP": "09",
-            "OCT": "10", "NOV": "11", "DEC": "12", "DIC": "12",
-        }
-        day = m.group(1).zfill(2)
-        month = month_map.get(m.group(2).upper())
-        year = m.group(3)
-        if len(year) == 2:
-            year = "20" + year
-        if month:
-            return f"{day}-{month}-{year}"
-
-    return value
-
-
-def extract_gli_report_reference(compact_text):
-    """
-    Extrae la referencia principal de certificados GLI.
-
-    Prioriza códigos completos como MO-246-PPL-25-154-684 sobre códigos
-    cortos de título como MO-246-PPL-25-154.
-    """
-    compact_text = clean(compact_text)
-
-    label_patterns = [
-        r"C[oó]digo\s+de\s+identificaci[oó]n\s+del\s+informe\s*:?\s*",
-        r"N[uú]mero\s+de\s+reporte\s*:?\s*",
-        r"Report\s+Reference\s*:?\s*",
-        r"Report\s+Number\s*:?\s*",
-    ]
-
-    for label in label_patterns:
-        m = re.search(label + f"({RE_GLI_REPORT_FULL.pattern})", compact_text, re.I)
-        if m:
-            return m.group(1).upper()
-
-    # Fallback: tomar el primer código completo disponible en el certificado.
-    candidates = RE_GLI_REPORT_FULL.findall(compact_text)
-    if candidates:
-        return candidates[0].upper()
-
-    # Último fallback: algunos títulos solo traen el código corto.
-    m = re.search(
-        r"CERTIFICADO\s+DE\s+CUMPLIMIENTO\s+No\.?\s*"
-        f"({RE_GLI_REPORT_SHORT.pattern})",
-        compact_text,
-        re.I,
-    )
-    if m:
-        return m.group(1).upper()
-
-    return ""
+    """Convierte fechas dd/mm/yyyy a dd-mm-yyyy. Si no encuentra fecha, devuelve texto limpio."""
+    m = re.search(r"(\d{2})/(\d{2})/(\d{4})", value or "")
+    if not m:
+        return clean(value)
+    return f"{m.group(1)}-{m.group(2)}-{m.group(3)}"
 
 
 def split_joined_unique_code(text):
@@ -219,43 +124,19 @@ def read_pdf_text(pdf_path):
 
 
 def next_value(lines, label):
-    """Busca una etiqueta y toma el valor en la misma línea o la siguiente línea no vacía."""
+    """Busca una etiqueta y toma la siguiente línea no vacía."""
     pattern = re.compile(label, re.I)
     for i, line in enumerate(lines):
         if pattern.search(line):
-            parts = re.split(r":", line, maxsplit=1)
-            if len(parts) == 2 and clean(parts[1]):
-                return clean(parts[1]).strip("•")
-
             for nxt in lines[i + 1:i + 8]:
-                value = clean(nxt).strip("•")
-                if value:
-                    return value
+                if clean(nxt):
+                    return clean(nxt)
     return ""
-
-
-def detect_document_type(full_text):
-    compact = re.sub(r"\s+", " ", full_text).lower()
-
-    if "resolución directoral" in compact or "resolucion directoral" in compact:
-        return "MINCETUR_RESOLUTION"
-
-    if "gaming laboratories international" in compact or "gaminglabs.com" in compact or "gli®" in compact:
-        return "GLI_GAME_CERTIFICATE"
-
-    if "quinel" in compact:
-        return "QUINEL_GAME_CERTIFICATE"
-
-    if re.search(r"tipo de certificaci[oó]n:\s*generador de n[uú]meros aleatorios|\bGNA\b|\bRNG\b", compact, re.I):
-        return "RNG_GNA"
-
-    return "UNKNOWN"
-
 
 
 def extract_expected_count(full_text):
     """
-    Extrae conteo esperado desde frases como:
+    Extrae el conteo esperado desde frases como:
     Tipo de Producto: ... (30 juegos)
     Tipo de Producto: ... (1 juego)
     """
@@ -269,11 +150,8 @@ def extract_expected_count(full_text):
 def extract_header(full_text, pages):
     first = pages[0] if pages else []
     compact = re.sub(r"\s+", " ", full_text)
-    doc_type = detect_document_type(full_text)
 
     report_reference = ""
-
-    # QUINEL / PE_BOG style.
     m = re.search(
         r"CERTIFICADO DE CUMPLIMIENTO\s*N[°º]?\s*(PE_[A-Z]{3}\d+GAM\.\d+_REV\.\d+)",
         compact,
@@ -286,22 +164,13 @@ def extract_header(full_text, pages):
     if m:
         report_reference = m.group(1).upper()
 
-    # GLI / MO style.
-    if not report_reference:
-        report_reference = extract_gli_report_reference(compact)
-
     report_date = ""
-
+    # Prioridad 1: Fecha de emisión.
     m = re.search(r"Fecha de emisión:\s*(\d{2}/\d{2}/\d{4})", compact, re.I)
     if m:
         report_date = date_to_excel(m.group(1))
-
-    if not report_date:
-        m = re.search(r"Fecha:\s*(\d{1,2}\s+de\s+[a-záéíóúñ]+\s+de\s+\d{4})", compact, re.I)
-        if m:
-            report_date = date_to_excel(m.group(1))
-
-    if not report_date:
+    else:
+        # Prioridad 2: etiqueta Fecha en primera página.
         for i, line in enumerate(first):
             if clean(line).lower().startswith("fecha"):
                 for nxt in first[i:i + 5]:
@@ -318,7 +187,7 @@ def extract_header(full_text, pages):
     rng_report_date = ""
     rng_issued_by = ""
 
-    # QUINEL RNG.
+    # Caso con emisor y fecha.
     m = re.search(
         r"(PE_[A-Z]{3}\d+RNG\.\d+_REV\.\d+)\s+emitido\s+por\s+([^\.]+?)\s+el\s+(\d{2}/\d{2}/\d{4})",
         compact,
@@ -329,41 +198,21 @@ def extract_header(full_text, pages):
         rng_issued_by = "QUINEL Ltd" if "quinel" in m.group(2).lower() else clean(m.group(2))
         rng_report_date = date_to_excel(m.group(3))
     else:
+        # Caso frecuente en los certificados: Hacer referencia informe con ID "PE_...RNG..."
         m = RE_REPORT_RNG.search(compact)
         if m:
             rng_report_reference = m.group(0).upper()
             rng_issued_by = "QUINEL Ltd" if "QUINEL" in full_text else ""
 
-    # GLI RNG.
-    if not rng_report_reference:
-        m = re.search(
-            r"Certificado de Cumplimiento\s+No\s+([A-Z]{2}-\d{3}-[A-Z]{3}-\d{2}-\d{2}-\d{3})\s+emitido\s+por\s+([^\.]+?)\s+el\s+(\d{2}/\d{2}/\d{4})",
-            compact,
-            re.I,
-        )
-        if m:
-            rng_report_reference = m.group(1).upper()
-            rng_issued_by = "GLI" if "gli" in m.group(2).lower() else clean(m.group(2))
-            rng_report_date = date_to_excel(m.group(3))
-
-    jurisdiction = "YES" if re.search(r"Jurisdicci[oó]n:?\s*Per[uú]", compact, re.I) else ""
-    result_pass = "YES" if re.search(r"Conclusi[oó]n:?\s*CUMPLE", compact, re.I) else ""
-
-    if doc_type == "GLI_GAME_CERTIFICATE":
-        issued_by = "GLI"
-    elif "QUINEL" in full_text:
-        issued_by = "QUINEL Ltd"
-    elif "GAMING LABORATORIES INTERNATIONAL" in full_text.upper():
-        issued_by = "GLI"
-    else:
-        issued_by = ""
+    jurisdiction = "YES" if re.search(r"Jurisdicción\s+Per[uú]", compact, re.I) else ""
+    result_pass = "YES" if re.search(r"Conclusión:?\s*CUMPLE", compact, re.I) else ""
 
     return {
         "provider": provider,
         "manufacturer": manufacturer,
         "report_reference": report_reference,
         "report_date": report_date,
-        "issued_by": issued_by,
+        "issued_by": "QUINEL Ltd" if "QUINEL" in full_text else "",
         "rng_report_reference": rng_report_reference,
         "rng_report_date": rng_report_date,
         "rng_issued_by": rng_issued_by,
@@ -371,7 +220,6 @@ def extract_header(full_text, pages):
         "match_with_jurisdiction_in_scope": jurisdiction,
         "general_result_is_pass": result_pass,
         "expected_games": extract_expected_count(full_text),
-        "document_type": doc_type,
     }
 
 
@@ -435,55 +283,6 @@ def extract_games_from_compact_summary(summary_text):
             "item": item,
             "game_name": name,
             "game_type": game_type or "Juegos de Línea",
-            "sample": version,
-            "unique_code": unique_code,
-        })
-
-    return games
-
-
-def extract_games_from_gli_summary(summary_text):
-    """
-    Extrae juegos desde certificados GLI con columnas:
-    NOMBRE DEL PRODUCTO | CÓDIGO ÚNICO | VERSIÓN | TIPO DE JUEGO | MEDIOS SOPORTADOS.
-    """
-    games = []
-
-    header = re.search(
-        r"NOMBRE\s+DEL\s+PRODUCTO\s+C[OÓ]DIGO\s+[UÚ]NICO\s+VERSI[OÓ]N\s+TIPO\s+DE\s+JUEGO\s+MEDIOS\s+SOPORTADOS",
-        summary_text,
-        re.I,
-    )
-    if not header:
-        return games
-
-    table_text = summary_text[header.end():]
-    table_text = re.split(r"\bLa plataforma tecnol[oó]gica\b|\bA\.1\.2\b", table_text, flags=re.I)[0]
-    table_text = clean(table_text)
-
-    # Ejemplo:
-    # Jelly Express vs20payanyvol_cv113 cv113.50724 Juego de Tragamonedas HTML5
-    row_pattern = re.compile(
-        r"(?P<name>[A-ZÁÉÍÓÚÑ0-9][A-Za-zÁÉÍÓÚÑáéíóúñ0-9+&'’\- .]{1,120}?)\s+"
-        r"(?P<unique>[A-Za-z0-9]+(?:[_-][A-Za-z0-9]+)+)\s+"
-        r"(?P<version>(?:cv|v)?\d+(?:\.\d+)+)\s+"
-        r"(?P<type>.+?)\s+HTML5\b",
-        re.I,
-    )
-
-    for idx, m in enumerate(row_pattern.finditer(table_text), start=1):
-        name = normalize_game_name(m.group("name"))
-        unique_code = clean(m.group("unique"))
-        version = clean(m.group("version"))
-        game_type = normalize_game_type(m.group("type"))
-
-        if not name or len(name) > 120:
-            continue
-
-        games.append({
-            "item": f"GLI{idx:03d}",
-            "game_name": name,
-            "game_type": game_type or "Juego de Tragamonedas",
             "sample": version,
             "unique_code": unique_code,
         })
@@ -582,106 +381,30 @@ def extract_games_from_lines(pages):
     return games
 
 
-def normalize_for_key(value):
-    """Normaliza texto para comparar juegos entre distintos extractores."""
-    value = clean(value).lower()
-    value = re.sub(r"\s+", " ", value)
-    return value.strip()
-
-
-def game_score(game):
-    """Puntaje para conservar el registro más completo."""
-    score = 0
-
-    if clean(game.get("game_name")):
-        score += 2
-    if clean(game.get("game_type")):
-        score += 1
-    if clean(game.get("sample")):
-        score += 1
-    if clean(game.get("unique_code")):
-        score += 3
-    if clean(game.get("item")):
-        score += 1
-
-    return score
-
-
-def game_identity_keys(game):
-    """
-    Genera llaves de identidad para detectar duplicados reales.
-
-    En GLI, el mismo juego puede salir desde un extractor como G001
-    y desde otro como GLI001. Por eso no basta deduplicar por item.
-    """
-    item = normalize_for_key(game.get("item"))
-    name = normalize_for_key(game.get("game_name"))
-    sample = normalize_for_key(game.get("sample"))
-    unique_code = normalize_for_key(game.get("unique_code"))
-
-    keys = []
-
-    if unique_code:
-        keys.append(("unique_code", unique_code))
-
-    if name and sample:
-        keys.append(("name_sample", name, sample))
-
-    if name:
-        keys.append(("name", name))
-
-    if item:
-        keys.append(("item", item))
-
-    return keys
-
-
 def dedupe_games(games):
     """
-    Deduplica juegos por identidad lógica, no solo por item.
-
-    Prioridad:
-    1. Código único.
-    2. Nombre + versión.
-    3. Nombre.
-    4. Item como último recurso.
-
-    Esto evita que un certificado GLI de 30 juegos termine con 60 filas
-    cuando dos extractores leen la misma tabla con identificadores distintos.
+    Deduplica por item. Si el mismo item sale por dos métodos,
+    se queda con el registro más completo.
     """
-    key_to_game = {}
+    by_item = {}
 
     for game in games:
-        keys = game_identity_keys(game)
-
-        if not keys:
+        item = game.get("item", "")
+        if not item:
             continue
 
-        existing_games = [key_to_game[key] for key in keys if key in key_to_game]
+        current = by_item.get(item)
+        if current is None:
+            by_item[item] = game
+            continue
 
-        if existing_games:
-            current_best = max(existing_games, key=game_score)
-            best = game if game_score(game) > game_score(current_best) else current_best
-        else:
-            best = game
+        current_score = sum(bool(current.get(k)) for k in ["game_name", "game_type", "sample", "unique_code"])
+        new_score = sum(bool(game.get(k)) for k in ["game_name", "game_type", "sample", "unique_code"])
 
-        for key in keys:
-            key_to_game[key] = best
+        if new_score > current_score:
+            by_item[item] = game
 
-    unique = []
-    seen_ids = set()
-
-    for game in key_to_game.values():
-        obj_id = id(game)
-
-        if obj_id not in seen_ids:
-            unique.append(game)
-            seen_ids.add(obj_id)
-
-    return sorted(
-        unique,
-        key=lambda g: normalize_for_key(g.get("item")) or normalize_for_key(g.get("game_name")),
-    )
+    return [by_item[item] for item in sorted(by_item.keys())]
 
 
 def extract_games(full_text, pages):
@@ -690,16 +413,20 @@ def extract_games(full_text, pages):
     games = []
     games.extend(extract_games_from_compact_summary(summary_text))
     games.extend(extract_games_from_lines(pages))
-    games.extend(extract_games_from_gli_summary(summary_text))
 
     cleaned_games = []
     for game in dedupe_games(games):
         name = clean(game.get("game_name"))
         sample = clean(game.get("sample"))
+        item = clean(game.get("item"))
+
+        if not re.fullmatch(r"G\d{3}", item):
+            continue
 
         if not name or not sample:
             continue
 
+        # Evita falsos positivos por texto excesivamente largo.
         if len(name) > 120:
             logging.warning("Juego descartado por nombre demasiado largo: %s", name)
             continue
@@ -795,23 +522,13 @@ def fill_excel(template_path, rows, output_path):
 
     style_source_row = data_row
 
-    # Limpieza robusta:
-    # Si la plantilla tenía juegos residuales de procesos anteriores,
-    # se eliminan antes de escribir los nuevos resultados.
-    if ws.max_row > data_row:
-        ws.delete_rows(data_row + 1, ws.max_row - data_row)
-
-    for col in range(1, ws.max_column + 1):
-        ws.cell(data_row, col).value = None
-
-    rows_to_create = max(len(rows), 1)
-
-    for idx in range(rows_to_create):
+    for idx in range(max(len(rows), 1)):
         excel_row = data_row + idx
         copy_row_format(ws, style_source_row, excel_row)
 
-        for col in range(1, ws.max_column + 1):
-            ws.cell(excel_row, col).value = None
+    for r in range(data_row, data_row + max(len(rows), 1)):
+        for col in fillable_columns:
+            ws.cell(r, col).value = None
 
     for idx, row in enumerate(rows):
         excel_row = data_row + idx
@@ -842,46 +559,16 @@ def build_rows_for_pdf(pdf):
         row = {}
         row.update(header)
         row.update(game)
-        row.pop("expected_games", None)
-        row.pop("document_type", None)
         rows.append(row)
 
     expected = header.get("expected_games")
-    extracted = len(games)
-    doc_type = header.get("document_type", "UNKNOWN")
-
-    missing_fields = []
-
-    if not header.get("report_reference"):
-        missing_fields.append("Report Reference")
-
-    if not header.get("report_date"):
-        missing_fields.append("Report Date")
-
-    if not header.get("provider"):
-        missing_fields.append("Game Provider")
-
-    if extracted == 0:
-        status = "REVISAR"
-        message = f"No se extrajeron juegos. Tipo detectado: {doc_type}"
-    elif expected is not None and expected != extracted:
-        status = "REVISAR"
-        message = f"Esperados {expected}, extraídos {extracted}"
-    elif missing_fields:
-        status = "REVISAR"
-        message = "Campos faltantes: " + ", ".join(missing_fields)
-    else:
-        status = "OK"
-        message = ""
-
     return rows, {
         "pdf": pdf_path.name,
-        "document_type": doc_type,
         "report_reference": header.get("report_reference", ""),
         "expected_games": expected if expected is not None else "",
-        "extracted_games": extracted,
-        "status": status,
-        "message": message,
+        "extracted_games": len(games),
+        "status": "OK" if expected is None or expected == len(games) else "REVISAR",
+        "message": "" if expected is None or expected == len(games) else f"Esperados {expected}, extraídos {len(games)}",
     }
 
 
@@ -889,7 +576,7 @@ def write_audit_csv(audit_rows, audit_path):
     audit_path = Path(audit_path)
     audit_path.parent.mkdir(parents=True, exist_ok=True)
 
-    columns = ["pdf", "document_type", "report_reference", "expected_games", "extracted_games", "status", "message"]
+    columns = ["pdf", "report_reference", "expected_games", "extracted_games", "status", "message"]
 
     with audit_path.open("w", newline="", encoding="utf-8-sig") as file:
         writer = csv.DictWriter(file, fieldnames=columns)
@@ -948,7 +635,6 @@ def process(template, pdfs, output, audit=None, strict=False):
         except Exception as exc:
             audit_row = {
                 "pdf": Path(pdf).name,
-                "document_type": "ERROR",
                 "report_reference": "",
                 "expected_games": "",
                 "extracted_games": 0,
