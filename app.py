@@ -737,6 +737,17 @@ def render_css():
                 color: #000000 !important;
                 font-weight: 800 !important;
             }}
+.hero-card h1,
+.hero-card .hero-title {{
+    color: #FFFFFF !important;
+    text-shadow: 0 2px 8px rgba(0, 0, 0, 0.55);
+}}
+
+.hero-card p,
+.hero-card .hero-subtitle {{
+    color: #FFFFFF !important;
+    font-weight: 600 !important;
+}}
         </style>
         """,
         unsafe_allow_html=True,
