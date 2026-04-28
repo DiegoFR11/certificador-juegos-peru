@@ -46,6 +46,22 @@ RE_REPORT_GAM = re.compile(r"PE_[A-Z]{3}\d+GAM\.\d+_REV\.\d+", re.I)
 RE_REPORT_RNG = re.compile(r"PE_[A-Z]{3}\d+RNG\.\d+_REV\.\d+", re.I)
 RE_VERSION = re.compile(r"\d+(?:\.\d+){1,3}")
 RE_ITEM = re.compile(r"G\d{3}", re.I)
+SPANISH_MONTHS = {
+    "enero": "01",
+    "febrero": "02",
+    "marzo": "03",
+    "abril": "04",
+    "mayo": "05",
+    "junio": "06",
+    "julio": "07",
+    "agosto": "08",
+    "septiembre": "09",
+    "setiembre": "09",
+    "octubre": "10",
+    "noviembre": "11",
+    "diciembre": "12",
+}
+
 
 
 def clean(value):
@@ -56,11 +72,37 @@ def clean(value):
 
 
 def date_to_excel(value):
-    """Convierte fechas dd/mm/yyyy a dd-mm-yyyy. Si no encuentra fecha, devuelve texto limpio."""
-    m = re.search(r"(\d{2})/(\d{2})/(\d{4})", value or "")
-    if not m:
-        return clean(value)
-    return f"{m.group(1)}-{m.group(2)}-{m.group(3)}"
+    """Devuelve dd-mm-yyyy para fechas dd/mm/yyyy, dd-MMM-yy o '08 de abril de 2026'."""
+    value = clean(value)
+
+    m = re.search(r"(\d{2})/(\d{2})/(\d{4})", value)
+    if m:
+        return f"{m.group(1)}-{m.group(2)}-{m.group(3)}"
+
+    m = re.search(r"(\d{1,2})\s+de\s+([a-záéíóúñ]+)\s+de\s+(\d{4})", value, re.I)
+    if m:
+        day = m.group(1).zfill(2)
+        month = SPANISH_MONTHS.get(m.group(2).lower())
+        year = m.group(3)
+        if month:
+            return f"{day}-{month}-{year}"
+
+    m = re.search(r"(\d{1,2})-([A-Z]{3})-(\d{2,4})", value, re.I)
+    if m:
+        month_map = {
+            "JAN": "01", "ENE": "01", "FEB": "02", "MAR": "03", "APR": "04", "ABR": "04",
+            "MAY": "05", "JUN": "06", "JUL": "07", "AUG": "08", "AGO": "08", "SEP": "09",
+            "OCT": "10", "NOV": "11", "DEC": "12", "DIC": "12",
+        }
+        day = m.group(1).zfill(2)
+        month = month_map.get(m.group(2).upper())
+        year = m.group(3)
+        if len(year) == 2:
+            year = "20" + year
+        if month:
+            return f"{day}-{month}-{year}"
+
+    return value
 
 
 def split_joined_unique_code(text):
@@ -124,19 +166,43 @@ def read_pdf_text(pdf_path):
 
 
 def next_value(lines, label):
-    """Busca una etiqueta y toma la siguiente línea no vacía."""
+    """Busca una etiqueta y toma el valor en la misma línea o la siguiente línea no vacía."""
     pattern = re.compile(label, re.I)
     for i, line in enumerate(lines):
         if pattern.search(line):
+            parts = re.split(r":", line, maxsplit=1)
+            if len(parts) == 2 and clean(parts[1]):
+                return clean(parts[1]).strip("•")
+
             for nxt in lines[i + 1:i + 8]:
-                if clean(nxt):
-                    return clean(nxt)
+                value = clean(nxt).strip("•")
+                if value:
+                    return value
     return ""
+
+
+def detect_document_type(full_text):
+    compact = re.sub(r"\s+", " ", full_text).lower()
+
+    if "resolución directoral" in compact or "resolucion directoral" in compact:
+        return "MINCETUR_RESOLUTION"
+
+    if "gaming laboratories international" in compact or "gaminglabs.com" in compact or "gli®" in compact:
+        return "GLI_GAME_CERTIFICATE"
+
+    if "quinel" in compact:
+        return "QUINEL_GAME_CERTIFICATE"
+
+    if re.search(r"tipo de certificaci[oó]n:\s*generador de n[uú]meros aleatorios|\bGNA\b|\bRNG\b", compact, re.I):
+        return "RNG_GNA"
+
+    return "UNKNOWN"
+
 
 
 def extract_expected_count(full_text):
     """
-    Extrae el conteo esperado desde frases como:
+    Extrae conteo esperado desde frases como:
     Tipo de Producto: ... (30 juegos)
     Tipo de Producto: ... (1 juego)
     """
@@ -150,8 +216,11 @@ def extract_expected_count(full_text):
 def extract_header(full_text, pages):
     first = pages[0] if pages else []
     compact = re.sub(r"\s+", " ", full_text)
+    doc_type = detect_document_type(full_text)
 
     report_reference = ""
+
+    # QUINEL / PE_BOG style.
     m = re.search(
         r"CERTIFICADO DE CUMPLIMIENTO\s*N[°º]?\s*(PE_[A-Z]{3}\d+GAM\.\d+_REV\.\d+)",
         compact,
@@ -164,13 +233,37 @@ def extract_header(full_text, pages):
     if m:
         report_reference = m.group(1).upper()
 
+    # GLI / MO style.
+    if not report_reference:
+        m = re.search(
+            r"C[oó]digo de identificaci[oó]n del informe:\s*([A-Z]{2}-\d{3}-[A-Z]{3}-\d{2}-\d{2}-\d{3})",
+            compact,
+            re.I,
+        )
+        if m:
+            report_reference = m.group(1).upper()
+
+    if not report_reference:
+        m = re.search(
+            r"N[uú]mero de reporte\s+([A-Z]{2}-\d{3}-[A-Z]{3}-\d{2}-\d{2}-\d{3}(?:\(\d+\))?)",
+            compact,
+            re.I,
+        )
+        if m:
+            report_reference = m.group(1).upper()
+
     report_date = ""
-    # Prioridad 1: Fecha de emisión.
+
     m = re.search(r"Fecha de emisión:\s*(\d{2}/\d{2}/\d{4})", compact, re.I)
     if m:
         report_date = date_to_excel(m.group(1))
-    else:
-        # Prioridad 2: etiqueta Fecha en primera página.
+
+    if not report_date:
+        m = re.search(r"Fecha:\s*(\d{1,2}\s+de\s+[a-záéíóúñ]+\s+de\s+\d{4})", compact, re.I)
+        if m:
+            report_date = date_to_excel(m.group(1))
+
+    if not report_date:
         for i, line in enumerate(first):
             if clean(line).lower().startswith("fecha"):
                 for nxt in first[i:i + 5]:
@@ -187,7 +280,7 @@ def extract_header(full_text, pages):
     rng_report_date = ""
     rng_issued_by = ""
 
-    # Caso con emisor y fecha.
+    # QUINEL RNG.
     m = re.search(
         r"(PE_[A-Z]{3}\d+RNG\.\d+_REV\.\d+)\s+emitido\s+por\s+([^\.]+?)\s+el\s+(\d{2}/\d{2}/\d{4})",
         compact,
@@ -198,21 +291,41 @@ def extract_header(full_text, pages):
         rng_issued_by = "QUINEL Ltd" if "quinel" in m.group(2).lower() else clean(m.group(2))
         rng_report_date = date_to_excel(m.group(3))
     else:
-        # Caso frecuente en los certificados: Hacer referencia informe con ID "PE_...RNG..."
         m = RE_REPORT_RNG.search(compact)
         if m:
             rng_report_reference = m.group(0).upper()
             rng_issued_by = "QUINEL Ltd" if "QUINEL" in full_text else ""
 
-    jurisdiction = "YES" if re.search(r"Jurisdicción\s+Per[uú]", compact, re.I) else ""
-    result_pass = "YES" if re.search(r"Conclusión:?\s*CUMPLE", compact, re.I) else ""
+    # GLI RNG.
+    if not rng_report_reference:
+        m = re.search(
+            r"Certificado de Cumplimiento\s+No\s+([A-Z]{2}-\d{3}-[A-Z]{3}-\d{2}-\d{2}-\d{3})\s+emitido\s+por\s+([^\.]+?)\s+el\s+(\d{2}/\d{2}/\d{4})",
+            compact,
+            re.I,
+        )
+        if m:
+            rng_report_reference = m.group(1).upper()
+            rng_issued_by = "GLI" if "gli" in m.group(2).lower() else clean(m.group(2))
+            rng_report_date = date_to_excel(m.group(3))
+
+    jurisdiction = "YES" if re.search(r"Jurisdicci[oó]n:?\s*Per[uú]", compact, re.I) else ""
+    result_pass = "YES" if re.search(r"Conclusi[oó]n:?\s*CUMPLE", compact, re.I) else ""
+
+    if doc_type == "GLI_GAME_CERTIFICATE":
+        issued_by = "GLI"
+    elif "QUINEL" in full_text:
+        issued_by = "QUINEL Ltd"
+    elif "GAMING LABORATORIES INTERNATIONAL" in full_text.upper():
+        issued_by = "GLI"
+    else:
+        issued_by = ""
 
     return {
         "provider": provider,
         "manufacturer": manufacturer,
         "report_reference": report_reference,
         "report_date": report_date,
-        "issued_by": "QUINEL Ltd" if "QUINEL" in full_text else "",
+        "issued_by": issued_by,
         "rng_report_reference": rng_report_reference,
         "rng_report_date": rng_report_date,
         "rng_issued_by": rng_issued_by,
@@ -220,6 +333,7 @@ def extract_header(full_text, pages):
         "match_with_jurisdiction_in_scope": jurisdiction,
         "general_result_is_pass": result_pass,
         "expected_games": extract_expected_count(full_text),
+        "document_type": doc_type,
     }
 
 
@@ -283,6 +397,55 @@ def extract_games_from_compact_summary(summary_text):
             "item": item,
             "game_name": name,
             "game_type": game_type or "Juegos de Línea",
+            "sample": version,
+            "unique_code": unique_code,
+        })
+
+    return games
+
+
+def extract_games_from_gli_summary(summary_text):
+    """
+    Extrae juegos desde certificados GLI con columnas:
+    NOMBRE DEL PRODUCTO | CÓDIGO ÚNICO | VERSIÓN | TIPO DE JUEGO | MEDIOS SOPORTADOS.
+    """
+    games = []
+
+    header = re.search(
+        r"NOMBRE\s+DEL\s+PRODUCTO\s+C[OÓ]DIGO\s+[UÚ]NICO\s+VERSI[OÓ]N\s+TIPO\s+DE\s+JUEGO\s+MEDIOS\s+SOPORTADOS",
+        summary_text,
+        re.I,
+    )
+    if not header:
+        return games
+
+    table_text = summary_text[header.end():]
+    table_text = re.split(r"\bLa plataforma tecnol[oó]gica\b|\bA\.1\.2\b", table_text, flags=re.I)[0]
+    table_text = clean(table_text)
+
+    # Ejemplo:
+    # Jelly Express vs20payanyvol_cv113 cv113.50724 Juego de Tragamonedas HTML5
+    row_pattern = re.compile(
+        r"(?P<name>[A-ZÁÉÍÓÚÑ0-9][A-Za-zÁÉÍÓÚÑáéíóúñ0-9+&'’\- .]{1,120}?)\s+"
+        r"(?P<unique>[A-Za-z0-9]+(?:[_-][A-Za-z0-9]+)+)\s+"
+        r"(?P<version>(?:cv|v)?\d+(?:\.\d+)+)\s+"
+        r"(?P<type>.+?)\s+HTML5\b",
+        re.I,
+    )
+
+    for idx, m in enumerate(row_pattern.finditer(table_text), start=1):
+        name = normalize_game_name(m.group("name"))
+        unique_code = clean(m.group("unique"))
+        version = clean(m.group("version"))
+        game_type = normalize_game_type(m.group("type"))
+
+        if not name or len(name) > 120:
+            continue
+
+        games.append({
+            "item": f"GLI{idx:03d}",
+            "game_name": name,
+            "game_type": game_type or "Juego de Tragamonedas",
             "sample": version,
             "unique_code": unique_code,
         })
@@ -413,20 +576,16 @@ def extract_games(full_text, pages):
     games = []
     games.extend(extract_games_from_compact_summary(summary_text))
     games.extend(extract_games_from_lines(pages))
+    games.extend(extract_games_from_gli_summary(summary_text))
 
     cleaned_games = []
     for game in dedupe_games(games):
         name = clean(game.get("game_name"))
         sample = clean(game.get("sample"))
-        item = clean(game.get("item"))
-
-        if not re.fullmatch(r"G\d{3}", item):
-            continue
 
         if not name or not sample:
             continue
 
-        # Evita falsos positivos por texto excesivamente largo.
         if len(name) > 120:
             logging.warning("Juego descartado por nombre demasiado largo: %s", name)
             continue
@@ -523,13 +682,11 @@ def fill_excel(template_path, rows, output_path):
     style_source_row = data_row
 
     # Limpieza robusta:
-    # La plantilla puede venir con juegos residuales de procesamientos anteriores.
-    # Para evitar que el Excel final conserve filas viejas, se deja una sola fila base
-    # para copiar formato y se eliminan todas las filas de datos existentes debajo.
+    # Si la plantilla tenía juegos residuales de procesos anteriores,
+    # se eliminan antes de escribir los nuevos resultados.
     if ws.max_row > data_row:
         ws.delete_rows(data_row + 1, ws.max_row - data_row)
 
-    # Limpia toda la fila base, no solo columnas editables, para evitar residuos.
     for col in range(1, ws.max_column + 1):
         ws.cell(data_row, col).value = None
 
@@ -539,7 +696,6 @@ def fill_excel(template_path, rows, output_path):
         excel_row = data_row + idx
         copy_row_format(ws, style_source_row, excel_row)
 
-        # Limpia la fila completa antes de escribir.
         for col in range(1, ws.max_column + 1):
             ws.cell(excel_row, col).value = None
 
@@ -572,16 +728,32 @@ def build_rows_for_pdf(pdf):
         row = {}
         row.update(header)
         row.update(game)
+        row.pop("expected_games", None)
+        row.pop("document_type", None)
         rows.append(row)
 
     expected = header.get("expected_games")
+    extracted = len(games)
+    doc_type = header.get("document_type", "UNKNOWN")
+
+    if extracted == 0:
+        status = "REVISAR"
+        message = f"No se extrajeron juegos. Tipo detectado: {doc_type}"
+    elif expected is not None and expected != extracted:
+        status = "REVISAR"
+        message = f"Esperados {expected}, extraídos {extracted}"
+    else:
+        status = "OK"
+        message = ""
+
     return rows, {
         "pdf": pdf_path.name,
+        "document_type": doc_type,
         "report_reference": header.get("report_reference", ""),
         "expected_games": expected if expected is not None else "",
-        "extracted_games": len(games),
-        "status": "OK" if expected is None or expected == len(games) else "REVISAR",
-        "message": "" if expected is None or expected == len(games) else f"Esperados {expected}, extraídos {len(games)}",
+        "extracted_games": extracted,
+        "status": status,
+        "message": message,
     }
 
 
@@ -589,7 +761,7 @@ def write_audit_csv(audit_rows, audit_path):
     audit_path = Path(audit_path)
     audit_path.parent.mkdir(parents=True, exist_ok=True)
 
-    columns = ["pdf", "report_reference", "expected_games", "extracted_games", "status", "message"]
+    columns = ["pdf", "document_type", "report_reference", "expected_games", "extracted_games", "status", "message"]
 
     with audit_path.open("w", newline="", encoding="utf-8-sig") as file:
         writer = csv.DictWriter(file, fieldnames=columns)
@@ -648,6 +820,7 @@ def process(template, pdfs, output, audit=None, strict=False):
         except Exception as exc:
             audit_row = {
                 "pdf": Path(pdf).name,
+                "document_type": "ERROR",
                 "report_reference": "",
                 "expected_games": "",
                 "extracted_games": 0,
