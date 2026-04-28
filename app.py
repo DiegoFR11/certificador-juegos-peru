@@ -2,7 +2,7 @@ from pathlib import Path
 import re
 import tempfile
 import shutil
-
+import base64
 import fitz
 import pandas as pd
 import streamlit as st
@@ -477,33 +477,109 @@ def render_css():
             }}
 
             /* Banner principal */
+                        .brand-shell {{
+                display: flex;
+                align-items: center;
+                gap: 24px;
+                width: 100%;
+                margin: 10px 0 24px 0;
+                box-sizing: border-box;
+            }}
+
+            .brand-logo-card {{
+                flex: 0 0 104px;
+                width: 104px;
+                height: 104px;
+                background: #FFFFFF;
+                border-radius: 18px;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                box-shadow: 0 12px 28px rgba(0, 0, 0, 0.10);
+                overflow: hidden;
+            }}
+
+            .brand-logo {{
+                width: 78px;
+                height: 78px;
+                object-fit: contain;
+                display: block;
+            }}
+
+            .brand-logo-fallback {{
+                width: 78px;
+                height: 78px;
+                border-radius: 16px;
+                background: var(--mc-yellow);
+                color: #000000 !important;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                font-size: 2rem;
+                font-weight: 900;
+            }}
+
             .brand-hero {{
+                flex: 1;
+                min-width: 0;
+                min-height: 128px;
                 background: linear-gradient(135deg, #0B0B0B 0%, #1E1E1E 58%, #FFC629 100%);
                 padding: 28px 32px;
                 border-radius: 26px;
-                border: 2px solid var(--mc-yellow);
+                border: 2px solid #FFC629;
                 box-shadow: 0 18px 45px rgba(0, 0, 0, 0.16);
-                margin-bottom: 22px;
+                display: flex;
+                flex-direction: column;
+                justify-content: center;
+                box-sizing: border-box;
+                overflow: visible;
             }}
 
-            .brand-hero .brand-title,
-            .brand-hero h1.brand-title {{
+            .brand-title {{
                 color: #FFFFFF !important;
                 font-size: 2.25rem;
                 font-weight: 900;
                 margin: 0;
                 line-height: 1.1;
                 letter-spacing: -0.03em;
-                text-shadow: 0 3px 12px rgba(0, 0, 0, 0.75);
+                text-shadow: 0 3px 12px rgba(0, 0, 0, 0.85);
             }}
 
-            .brand-hero .brand-subtitle {{
+            .brand-subtitle {{
                 color: #FFFFFF !important;
                 font-size: 1rem;
                 font-weight: 700;
-                margin-top: 16px;
-                max-width: 980px;
+                margin-top: 18px;
+                max-width: 1050px;
                 text-shadow: 0 2px 8px rgba(0, 0, 0, 0.75);
+            }}
+
+            @media (max-width: 900px) {{
+                .brand-shell {{
+                    flex-direction: column;
+                    align-items: stretch;
+                    gap: 14px;
+                }}
+
+                .brand-logo-card {{
+                    width: 90px;
+                    height: 90px;
+                    flex-basis: 90px;
+                }}
+
+                .brand-logo {{
+                    width: 68px;
+                    height: 68px;
+                }}
+
+                .brand-hero {{
+                    min-height: auto;
+                    padding: 24px;
+                }}
+
+                .brand-title {{
+                    font-size: 1.8rem;
+                }}
             }}
 
             /* Cards de estado */
@@ -727,37 +803,33 @@ def render_css():
 def render_header():
     logo_bytes = get_logo_bytes()
 
-    with st.container():
-        if logo_bytes:
-            col_logo, col_text = st.columns([1, 6])
-            with col_logo:
-                st.image(logo_bytes, width=90)
-            with col_text:
-                st.markdown(
-                    f"""
-                    <div class="brand-hero">
-                        <div class="brand-title">{APP_TITLE}</div>
-                        <div class="brand-subtitle">
-                            Carga certificados de juegos y Resoluciones Directorales MINCETUR.
-                            Genera archivos Excel listos para validación y control regulatorio.
-                        </div>
-                    </div>
-                    """,
-                    unsafe_allow_html=True,
-                )
-        else:
-            st.markdown(
-                f"""
-                <div class="brand-hero">
-                    <h1 class="brand-title">{APP_TITLE}</h1>
-                    <div class="brand-subtitle">
-                        Carga certificados de juegos y Resoluciones Directorales MINCETUR.
-                        Genera archivos Excel listos para validación y control regulatorio.
-                    </div>
+    if logo_bytes:
+        logo_base64 = base64.b64encode(logo_bytes).decode("utf-8")
+        logo_html = (
+            f'<img src="data:image/png;base64,{logo_base64}" '
+            f'class="brand-logo" alt="MiCasino logo" />'
+        )
+    else:
+        logo_html = '<div class="brand-logo-fallback">M</div>'
+
+    st.markdown(
+        f"""
+        <div class="brand-shell">
+            <div class="brand-logo-card">
+                {logo_html}
+            </div>
+
+            <div class="brand-hero">
+                <div class="brand-title">{APP_TITLE}</div>
+                <div class="brand-subtitle">
+                    Carga certificados de juegos y Resoluciones Directorales MINCETUR.
+                    Genera archivos Excel listos para validación y control regulatorio.
                 </div>
-                """,
-                unsafe_allow_html=True,
-            )
+            </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
 
 
 def render_sidebar():
