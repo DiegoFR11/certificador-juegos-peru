@@ -8,7 +8,7 @@ import pandas as pd
 import streamlit as st
 from openpyxl import Workbook
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
-
+import textwrap
 from generar_excel import process
 
 
@@ -812,22 +812,24 @@ def render_header():
     else:
         logo_html = '<div class="brand-logo-fallback">M</div>'
 
-    st.markdown(
-        f"""
-        <div class="brand-shell">
-            <div class="brand-logo-card">
-                {logo_html}
-            </div>
+    html = f"""
+<div class="brand-shell">
+    <div class="brand-logo-card">
+        {logo_html}
+    </div>
 
-            <div class="brand-hero">
-                <div class="brand-title">{APP_TITLE}</div>
-                <div class="brand-subtitle">
-                    Carga certificados de juegos y Resoluciones Directorales MINCETUR.
-                    Genera archivos Excel listos para validación y control regulatorio.
-                </div>
-            </div>
+    <div class="brand-hero">
+        <div class="brand-title">{APP_TITLE}</div>
+        <div class="brand-subtitle">
+            Carga certificados de juegos y Resoluciones Directorales MINCETUR.
+            Genera archivos Excel listos para validación y control regulatorio.
         </div>
-        """,
+    </div>
+</div>
+"""
+
+    st.markdown(
+        textwrap.dedent(html),
         unsafe_allow_html=True,
     )
 
