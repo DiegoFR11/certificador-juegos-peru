@@ -559,7 +559,171 @@ def render_css():
                 font-size: 0.85rem;
                 color: #D1D5DB !important;
             }}
-                        /* Botón Limpiar resultados en sidebar */
+                        /* ==============================
+               Forzar visual light mode
+               ============================== */
+
+            html,
+            body,
+            .stApp,
+            [data-testid="stAppViewContainer"],
+            [data-testid="stHeader"] {{
+                background-color: #FFF9EA !important;
+                color: #111827 !important;
+            }}
+
+            .block-container {{
+                background-color: transparent !important;
+                color: #111827 !important;
+            }}
+
+            h1, h2, h3, h4, h5, h6,
+            p, span, label, div {{
+                color: inherit;
+            }}
+
+            /* Textos principales fuera del sidebar */
+            [data-testid="stAppViewContainer"] h1,
+            [data-testid="stAppViewContainer"] h2,
+            [data-testid="stAppViewContainer"] h3,
+            [data-testid="stAppViewContainer"] p,
+            [data-testid="stAppViewContainer"] label,
+            [data-testid="stAppViewContainer"] span {{
+                color: #111827 !important;
+            }}
+
+            /* File uploader */
+            [data-testid="stFileUploader"] {{
+                background-color: #F3F4F6 !important;
+                border-radius: 12px !important;
+                color: #111827 !important;
+            }}
+
+            [data-testid="stFileUploader"] section {{
+                background-color: #F3F4F6 !important;
+                border: 1px solid #E5E7EB !important;
+                color: #111827 !important;
+            }}
+
+            [data-testid="stFileUploader"] button {{
+                background-color: #FFFFFF !important;
+                color: #111827 !important;
+                border: 1px solid #D1D5DB !important;
+            }}
+
+            [data-testid="stFileUploader"] small,
+            [data-testid="stFileUploader"] span,
+            [data-testid="stFileUploader"] p {{
+                color: #6B7280 !important;
+            }}
+
+            /* Inputs, selects y áreas de texto */
+            input,
+            textarea,
+            select {{
+                background-color: #FFFFFF !important;
+                color: #111827 !important;
+                border-color: #D1D5DB !important;
+            }}
+
+            /* Métricas */
+            [data-testid="stMetric"] {{
+                background-color: transparent !important;
+                color: #111827 !important;
+            }}
+
+            [data-testid="stMetric"] label,
+            [data-testid="stMetric"] div {{
+                color: #111827 !important;
+            }}
+
+            /* Dataframes / tablas */
+            [data-testid="stDataFrame"],
+            [data-testid="stTable"] {{
+                background-color: #FFFFFF !important;
+                color: #111827 !important;
+                border-radius: 12px !important;
+            }}
+
+            [data-testid="stDataFrame"] * {{
+                color: #111827 !important;
+            }}
+
+            /* Expanders */
+            [data-testid="stExpander"] {{
+                background-color: #FFFFFF !important;
+                color: #111827 !important;
+                border: 1px solid #E5E7EB !important;
+                border-radius: 12px !important;
+            }}
+
+            [data-testid="stExpander"] * {{
+                color: #111827 !important;
+            }}
+
+            /* Tabs */
+            button[data-baseweb="tab"] {{
+                background-color: #FFFFFF !important;
+                color: #111827 !important;
+                border-radius: 999px !important;
+            }}
+
+            button[data-baseweb="tab"][aria-selected="true"] {{
+                background-color: var(--mc-yellow) !important;
+                color: #000000 !important;
+                font-weight: 800 !important;
+            }}
+
+            button[data-baseweb="tab"] p {{
+                color: inherit !important;
+            }}
+
+            /* Botones principales */
+            div.stButton > button,
+            div.stDownloadButton > button {{
+                background-color: var(--mc-yellow) !important;
+                color: #000000 !important;
+                border: 2px solid var(--mc-yellow) !important;
+                border-radius: 14px !important;
+                font-weight: 800 !important;
+            }}
+
+            div.stButton > button p,
+            div.stDownloadButton > button p {{
+                color: #000000 !important;
+                font-weight: 800 !important;
+            }}
+
+            div.stButton > button:disabled,
+            div.stDownloadButton > button:disabled {{
+                background-color: #FFE08A !important;
+                color: #000000 !important;
+                border-color: #FFE08A !important;
+                opacity: 0.75 !important;
+            }}
+
+            div.stButton > button:disabled p,
+            div.stDownloadButton > button:disabled p {{
+                color: #000000 !important;
+            }}
+
+            /* Sidebar se mantiene oscuro */
+            [data-testid="stSidebar"] {{
+                background: #0B0B0B !important;
+                color: #FFFFFF !important;
+            }}
+
+            [data-testid="stSidebar"] h1,
+            [data-testid="stSidebar"] h2,
+            [data-testid="stSidebar"] h3,
+            [data-testid="stSidebar"] p,
+            [data-testid="stSidebar"] span,
+            [data-testid="stSidebar"] label,
+            [data-testid="stSidebar"] div {{
+                color: #FFFFFF !important;
+            }}
+
+            /* Botón limpiar resultados en sidebar */
             section[data-testid="stSidebar"] div.stButton > button {{
                 background-color: var(--mc-yellow) !important;
                 color: #000000 !important;
@@ -567,32 +731,9 @@ def render_css():
                 border-radius: 14px !important;
                 font-weight: 800 !important;
                 opacity: 1 !important;
-                box-shadow: 0 8px 20px rgba(255, 199, 44, 0.25) !important;
             }}
 
             section[data-testid="stSidebar"] div.stButton > button p {{
-                color: #000000 !important;
-                font-weight: 800 !important;
-            }}
-
-            section[data-testid="stSidebar"] div.stButton > button:hover {{
-                background-color: #FFD84D !important;
-                color: #000000 !important;
-                border-color: #FFD84D !important;
-            }}
-
-            section[data-testid="stSidebar"] div.stButton > button:hover p {{
-                color: #000000 !important;
-            }}
-
-            section[data-testid="stSidebar"] div.stButton > button:disabled {{
-                background-color: var(--mc-yellow) !important;
-                color: #000000 !important;
-                border: 2px solid var(--mc-yellow) !important;
-                opacity: 0.75 !important;
-            }}
-
-            section[data-testid="stSidebar"] div.stButton > button:disabled p {{
                 color: #000000 !important;
                 font-weight: 800 !important;
             }}
