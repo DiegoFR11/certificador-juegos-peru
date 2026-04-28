@@ -424,6 +424,12 @@ def mark_mincetur_downloaded():
 
 
 def render_css():
+    """Renderiza los estilos visuales de la app.
+
+    Se fuerza un modo claro para el área principal para evitar problemas
+    cuando el navegador o Streamlit están en modo oscuro. El sidebar se
+    mantiene en negro como parte del branding de MiCasino.
+    """
     st.markdown(
         f"""
         <style>
@@ -433,283 +439,254 @@ def render_css():
                 --mc-white: {MI_CASINO_WHITE};
                 --mc-bg: {MI_CASINO_BG};
                 --mc-soft: {MI_CASINO_SOFT};
+                --mc-text: #111827;
+                --mc-muted: #6B7280;
+                --mc-border: #E5E7EB;
+                color-scheme: light;
             }}
-
-            .stApp {{
-                background: linear-gradient(180deg, #FFFFFF 0%, #FFF9EA 100%);
-            }}
-
-            [data-testid="stSidebar"] {{
-                background: #0B0B0B;
-                color: white;
-            }}
-
-            [data-testid="stSidebar"] * {{
-                color: white;
-            }}
-
-            .brand-hero {{
-                background: linear-gradient(135deg, #0B0B0B 0%, #1E1E1E 60%, #FFC629 100%);
-                padding: 28px 32px;
-                border-radius: 26px;
-                border: 2px solid #FFC629;
-                box-shadow: 0 18px 45px rgba(0,0,0,0.16);
-                margin-bottom: 22px;
-            }}
-
-            .brand-title {{
-                color: white;
-                font-size: 2.25rem;
-                font-weight: 900;
-                margin: 0;
-                line-height: 1.1;
-            }}
-
-            .brand-subtitle {{
-                color: #F4F4F4;
-                font-size: 1rem;
-                margin-top: 8px;
-                max-width: 900px;
-            }}
-
-            .status-card {{
-                background: white;
-                border: 1px solid #E6E6E6;
-                border-left: 7px solid #FFC629;
-                border-radius: 18px;
-                padding: 18px 20px;
-                margin: 14px 0;
-                box-shadow: 0 10px 25px rgba(0,0,0,0.05);
-            }}
-
-            .success-card {{
-                background: #ECFDF3;
-                border: 1px solid #ABEFC6;
-                border-left: 7px solid #12B76A;
-                color: #067647;
-                border-radius: 18px;
-                padding: 18px 20px;
-                margin: 14px 0;
-            }}
-
-            .warning-card {{
-                background: #FFFAEB;
-                border: 1px solid #FEDF89;
-                border-left: 7px solid #F79009;
-                color: #93370D;
-                border-radius: 18px;
-                padding: 18px 20px;
-                margin: 14px 0;
-            }}
-
-            .error-card {{
-                background: #FEF3F2;
-                border: 1px solid #FECDCA;
-                border-left: 7px solid #F04438;
-                color: #B42318;
-                border-radius: 18px;
-                padding: 18px 20px;
-                margin: 14px 0;
-            }}
-
-            .step-row {{
-                background: white;
-                border-radius: 999px;
-                border: 1px solid #E6E6E6;
-                padding: 10px 16px;
-                margin: 8px 0 24px 0;
-                box-shadow: 0 8px 20px rgba(0,0,0,0.04);
-                font-weight: 700;
-            }}
-
-            .mc-pill {{
-                display: inline-block;
-                background: #FFC629;
-                color: #0B0B0B;
-                padding: 6px 12px;
-                border-radius: 999px;
-                font-weight: 800;
-                margin-right: 8px;
-            }}
-
-            div.stButton > button,
-            div.stDownloadButton > button {{
-                border-radius: 14px;
-                min-height: 3rem;
-                font-weight: 800;
-                border: 1px solid #0B0B0B;
-            }}
-
-            div.stButton > button[kind="primary"],
-            div.stDownloadButton > button[kind="primary"] {{
-                background: #FFC629;
-                color: #0B0B0B;
-                border: 1px solid #0B0B0B;
-            }}
-
-            div.stButton > button:disabled,
-            div.stDownloadButton > button:disabled {{
-                background: #D9D9D9 !important;
-                color: #555555 !important;
-                border: 1px solid #999999 !important;
-                opacity: 1 !important;
-            }}
-
-            .sidebar-action-note {{
-                font-size: 0.85rem;
-                color: #D1D5DB !important;
-            }}
-                        /* ==============================
-               Forzar visual light mode
-               ============================== */
 
             html,
             body,
             .stApp,
             [data-testid="stAppViewContainer"],
             [data-testid="stHeader"] {{
-                background-color: #FFF9EA !important;
-                color: #111827 !important;
+                background-color: var(--mc-bg) !important;
+                color: var(--mc-text) !important;
+            }}
+
+            .stApp {{
+                background: linear-gradient(180deg, #FFFFFF 0%, var(--mc-bg) 100%) !important;
             }}
 
             .block-container {{
                 background-color: transparent !important;
-                color: #111827 !important;
+                color: var(--mc-text) !important;
+                padding-top: 2rem;
             }}
 
-            h1, h2, h3, h4, h5, h6,
-            p, span, label, div {{
-                color: inherit;
-            }}
-
-            /* Textos principales fuera del sidebar */
             [data-testid="stAppViewContainer"] h1,
             [data-testid="stAppViewContainer"] h2,
             [data-testid="stAppViewContainer"] h3,
+            [data-testid="stAppViewContainer"] h4,
+            [data-testid="stAppViewContainer"] h5,
+            [data-testid="stAppViewContainer"] h6,
             [data-testid="stAppViewContainer"] p,
             [data-testid="stAppViewContainer"] label,
             [data-testid="stAppViewContainer"] span {{
-                color: #111827 !important;
+                color: var(--mc-text) !important;
+            }}
+
+            /* Banner principal */
+            .brand-hero {{
+                background: linear-gradient(135deg, #0B0B0B 0%, #1E1E1E 58%, #FFC629 100%);
+                padding: 28px 32px;
+                border-radius: 26px;
+                border: 2px solid var(--mc-yellow);
+                box-shadow: 0 18px 45px rgba(0, 0, 0, 0.16);
+                margin-bottom: 22px;
+            }}
+
+            .brand-hero .brand-title,
+            .brand-hero h1.brand-title {{
+                color: #FFFFFF !important;
+                font-size: 2.25rem;
+                font-weight: 900;
+                margin: 0;
+                line-height: 1.1;
+                letter-spacing: -0.02em;
+                text-shadow: 0 3px 10px rgba(0, 0, 0, 0.65);
+            }}
+
+            .brand-hero .brand-subtitle {{
+                color: #FFFFFF !important;
+                font-size: 1rem;
+                font-weight: 600;
+                margin-top: 12px;
+                max-width: 950px;
+                text-shadow: 0 2px 8px rgba(0, 0, 0, 0.55);
+            }}
+
+            /* Cards de estado */
+            .status-card,
+            .success-card,
+            .warning-card,
+            .error-card {{
+                border-radius: 18px;
+                padding: 18px 20px;
+                margin: 14px 0;
+                box-shadow: 0 10px 25px rgba(0, 0, 0, 0.05);
+            }}
+
+            .status-card {{
+                background: #FFFFFF;
+                border: 1px solid #E6E6E6;
+                border-left: 7px solid var(--mc-yellow);
+                color: var(--mc-text) !important;
+            }}
+
+            .success-card {{
+                background: #ECFDF3;
+                border: 1px solid #ABEFC6;
+                border-left: 7px solid #12B76A;
+                color: #067647 !important;
+            }}
+
+            .warning-card {{
+                background: #FFFAEB;
+                border: 1px solid #FEDF89;
+                border-left: 7px solid #F79009;
+                color: #93370D !important;
+            }}
+
+            .error-card {{
+                background: #FEF3F2;
+                border: 1px solid #FECDCA;
+                border-left: 7px solid #F04438;
+                color: #B42318 !important;
+            }}
+
+            .status-card *,
+            .success-card *,
+            .warning-card *,
+            .error-card * {{
+                color: inherit !important;
+            }}
+
+            /* Fila de pasos */
+            .step-row {{
+                background: #FFFFFF;
+                border-radius: 999px;
+                border: 1px solid #E6E6E6;
+                padding: 10px 16px;
+                margin: 8px 0 24px 0;
+                box-shadow: 0 8px 20px rgba(0, 0, 0, 0.04);
+                font-weight: 700;
+                color: var(--mc-text) !important;
+            }}
+
+            .mc-pill {{
+                display: inline-block;
+                background: var(--mc-yellow);
+                color: var(--mc-black) !important;
+                padding: 6px 12px;
+                border-radius: 999px;
+                font-weight: 800;
+                margin-right: 8px;
             }}
 
             /* File uploader */
             [data-testid="stFileUploader"] {{
                 background-color: #F3F4F6 !important;
                 border-radius: 12px !important;
-                color: #111827 !important;
+                color: var(--mc-text) !important;
             }}
 
             [data-testid="stFileUploader"] section {{
                 background-color: #F3F4F6 !important;
-                border: 1px solid #E5E7EB !important;
-                color: #111827 !important;
+                border: 1px solid var(--mc-border) !important;
+                color: var(--mc-text) !important;
             }}
 
             [data-testid="stFileUploader"] button {{
                 background-color: #FFFFFF !important;
-                color: #111827 !important;
+                color: var(--mc-text) !important;
                 border: 1px solid #D1D5DB !important;
             }}
 
             [data-testid="stFileUploader"] small,
             [data-testid="stFileUploader"] span,
             [data-testid="stFileUploader"] p {{
-                color: #6B7280 !important;
+                color: var(--mc-muted) !important;
             }}
 
-            /* Inputs, selects y áreas de texto */
+            /* Inputs y tablas */
             input,
             textarea,
             select {{
                 background-color: #FFFFFF !important;
-                color: #111827 !important;
+                color: var(--mc-text) !important;
                 border-color: #D1D5DB !important;
             }}
 
-            /* Métricas */
-            [data-testid="stMetric"] {{
-                background-color: transparent !important;
-                color: #111827 !important;
-            }}
-
-            [data-testid="stMetric"] label,
-            [data-testid="stMetric"] div {{
-                color: #111827 !important;
-            }}
-
-            /* Dataframes / tablas */
+            [data-testid="stMetric"],
             [data-testid="stDataFrame"],
-            [data-testid="stTable"] {{
-                background-color: #FFFFFF !important;
-                color: #111827 !important;
-                border-radius: 12px !important;
-            }}
-
-            [data-testid="stDataFrame"] * {{
-                color: #111827 !important;
-            }}
-
-            /* Expanders */
+            [data-testid="stTable"],
             [data-testid="stExpander"] {{
                 background-color: #FFFFFF !important;
-                color: #111827 !important;
-                border: 1px solid #E5E7EB !important;
+                color: var(--mc-text) !important;
                 border-radius: 12px !important;
             }}
 
+            [data-testid="stMetric"] *,
+            [data-testid="stDataFrame"] *,
+            [data-testid="stTable"] *,
             [data-testid="stExpander"] * {{
-                color: #111827 !important;
+                color: var(--mc-text) !important;
+            }}
+
+            [data-testid="stExpander"] {{
+                border: 1px solid var(--mc-border) !important;
             }}
 
             /* Tabs */
             button[data-baseweb="tab"] {{
                 background-color: #FFFFFF !important;
-                color: #111827 !important;
+                color: var(--mc-text) !important;
                 border-radius: 999px !important;
-            }}
-
-            button[data-baseweb="tab"][aria-selected="true"] {{
-                background-color: var(--mc-yellow) !important;
-                color: #000000 !important;
-                font-weight: 800 !important;
+                padding: 8px 14px !important;
             }}
 
             button[data-baseweb="tab"] p {{
                 color: inherit !important;
             }}
 
-            /* Botones principales */
+            button[data-baseweb="tab"][aria-selected="true"] {{
+                background-color: var(--mc-yellow) !important;
+                color: var(--mc-black) !important;
+                font-weight: 800 !important;
+            }}
+
+            /* Botones */
             div.stButton > button,
             div.stDownloadButton > button {{
                 background-color: var(--mc-yellow) !important;
-                color: #000000 !important;
+                color: var(--mc-black) !important;
                 border: 2px solid var(--mc-yellow) !important;
                 border-radius: 14px !important;
+                min-height: 3rem;
                 font-weight: 800 !important;
+                opacity: 1 !important;
             }}
 
             div.stButton > button p,
             div.stDownloadButton > button p {{
-                color: #000000 !important;
+                color: var(--mc-black) !important;
                 font-weight: 800 !important;
+            }}
+
+            div.stButton > button:hover,
+            div.stDownloadButton > button:hover {{
+                background-color: #FFD84D !important;
+                border-color: #FFD84D !important;
+                color: var(--mc-black) !important;
             }}
 
             div.stButton > button:disabled,
             div.stDownloadButton > button:disabled {{
                 background-color: #FFE08A !important;
-                color: #000000 !important;
+                color: var(--mc-black) !important;
                 border-color: #FFE08A !important;
                 opacity: 0.75 !important;
             }}
 
             div.stButton > button:disabled p,
             div.stDownloadButton > button:disabled p {{
-                color: #000000 !important;
+                color: var(--mc-black) !important;
             }}
 
-            /* Sidebar se mantiene oscuro */
+            /* Sidebar oscuro */
             [data-testid="stSidebar"] {{
-                background: #0B0B0B !important;
+                background: var(--mc-black) !important;
                 color: #FFFFFF !important;
             }}
 
@@ -723,36 +700,29 @@ def render_css():
                 color: #FFFFFF !important;
             }}
 
-            /* Botón limpiar resultados en sidebar */
+            [data-testid="stSidebar"] [data-testid="stAlert"] *,
+            [data-testid="stSidebar"] .sidebar-action-note {{
+                color: #D1D5DB !important;
+            }}
+
             section[data-testid="stSidebar"] div.stButton > button {{
                 background-color: var(--mc-yellow) !important;
-                color: #000000 !important;
+                color: var(--mc-black) !important;
                 border: 2px solid var(--mc-yellow) !important;
                 border-radius: 14px !important;
                 font-weight: 800 !important;
                 opacity: 1 !important;
+                box-shadow: 0 8px 20px rgba(255, 198, 41, 0.22) !important;
             }}
 
             section[data-testid="stSidebar"] div.stButton > button p {{
-                color: #000000 !important;
+                color: var(--mc-black) !important;
                 font-weight: 800 !important;
             }}
-.hero-card h1,
-.hero-card .hero-title {{
-    color: #FFFFFF !important;
-    text-shadow: 0 2px 8px rgba(0, 0, 0, 0.55);
-}}
-
-.hero-card p,
-.hero-card .hero-subtitle {{
-    color: #FFFFFF !important;
-    font-weight: 600 !important;
-}}
         </style>
         """,
         unsafe_allow_html=True,
     )
-
 
 def render_header():
     logo_bytes = get_logo_bytes()
