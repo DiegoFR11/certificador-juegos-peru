@@ -1,14 +1,16 @@
 from pathlib import Path
+import base64
 import re
 import tempfile
 import shutil
-import base64
+
 import fitz
 import pandas as pd
 import streamlit as st
+import streamlit.components.v1 as components
 from openpyxl import Workbook
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
-import textwrap
+
 from generar_excel import process
 
 
@@ -477,109 +479,33 @@ def render_css():
             }}
 
             /* Banner principal */
-                        .brand-shell {{
-                display: flex;
-                align-items: center;
-                gap: 24px;
-                width: 100%;
-                margin: 10px 0 24px 0;
-                box-sizing: border-box;
-            }}
-
-            .brand-logo-card {{
-                flex: 0 0 104px;
-                width: 104px;
-                height: 104px;
-                background: #FFFFFF;
-                border-radius: 18px;
-                display: flex;
-                align-items: center;
-                justify-content: center;
-                box-shadow: 0 12px 28px rgba(0, 0, 0, 0.10);
-                overflow: hidden;
-            }}
-
-            .brand-logo {{
-                width: 78px;
-                height: 78px;
-                object-fit: contain;
-                display: block;
-            }}
-
-            .brand-logo-fallback {{
-                width: 78px;
-                height: 78px;
-                border-radius: 16px;
-                background: var(--mc-yellow);
-                color: #000000 !important;
-                display: flex;
-                align-items: center;
-                justify-content: center;
-                font-size: 2rem;
-                font-weight: 900;
-            }}
-
             .brand-hero {{
-                flex: 1;
-                min-width: 0;
-                min-height: 128px;
                 background: linear-gradient(135deg, #0B0B0B 0%, #1E1E1E 58%, #FFC629 100%);
                 padding: 28px 32px;
                 border-radius: 26px;
-                border: 2px solid #FFC629;
+                border: 2px solid var(--mc-yellow);
                 box-shadow: 0 18px 45px rgba(0, 0, 0, 0.16);
-                display: flex;
-                flex-direction: column;
-                justify-content: center;
-                box-sizing: border-box;
-                overflow: visible;
+                margin-bottom: 22px;
             }}
 
-            .brand-title {{
+            .brand-hero .brand-title,
+            .brand-hero h1.brand-title {{
                 color: #FFFFFF !important;
                 font-size: 2.25rem;
                 font-weight: 900;
                 margin: 0;
                 line-height: 1.1;
-                letter-spacing: -0.03em;
-                text-shadow: 0 3px 12px rgba(0, 0, 0, 0.85);
+                letter-spacing: -0.02em;
+                text-shadow: 0 3px 10px rgba(0, 0, 0, 0.65);
             }}
 
-            .brand-subtitle {{
+            .brand-hero .brand-subtitle {{
                 color: #FFFFFF !important;
                 font-size: 1rem;
-                font-weight: 700;
-                margin-top: 18px;
-                max-width: 1050px;
-                text-shadow: 0 2px 8px rgba(0, 0, 0, 0.75);
-            }}
-
-            @media (max-width: 900px) {{
-                .brand-shell {{
-                    flex-direction: column;
-                    align-items: stretch;
-                    gap: 14px;
-                }}
-
-                .brand-logo-card {{
-                    width: 90px;
-                    height: 90px;
-                    flex-basis: 90px;
-                }}
-
-                .brand-logo {{
-                    width: 68px;
-                    height: 68px;
-                }}
-
-                .brand-hero {{
-                    min-height: auto;
-                    padding: 24px;
-                }}
-
-                .brand-title {{
-                    font-size: 1.8rem;
-                }}
+                font-weight: 600;
+                margin-top: 12px;
+                max-width: 950px;
+                text-shadow: 0 2px 8px rgba(0, 0, 0, 0.55);
             }}
 
             /* Cards de estado */
@@ -801,38 +727,165 @@ def render_css():
     )
 
 def render_header():
+    """Renderiza el encabezado principal en un componente HTML aislado.
+
+    Se usa components.html para evitar que el tema oscuro del navegador o las
+    reglas globales de Streamlit afecten el contraste del título del banner.
+    """
     logo_bytes = get_logo_bytes()
 
     if logo_bytes:
         logo_base64 = base64.b64encode(logo_bytes).decode("utf-8")
-        logo_html = (
-            f'<img src="data:image/png;base64,{logo_base64}" '
-            f'class="brand-logo" alt="MiCasino logo" />'
-        )
+        logo_html = f'<img src="data:image/png;base64,{logo_base64}" class="brand-logo" alt="MiCasino logo">'
     else:
         logo_html = '<div class="brand-logo-fallback">M</div>'
 
-    html = f"""
-<div class="brand-shell">
-    <div class="brand-logo-card">
-        {logo_html}
-    </div>
+    header_html = f"""
+    <!DOCTYPE html>
+    <html lang="es">
+    <head>
+        <meta charset="UTF-8" />
+        <style>
+            :root {{
+                --mc-yellow: {MI_CASINO_YELLOW};
+                --mc-black: {MI_CASINO_BLACK};
+                --mc-white: {MI_CASINO_WHITE};
+            }}
 
-    <div class="brand-hero">
-        <div class="brand-title">{APP_TITLE}</div>
-        <div class="brand-subtitle">
-            Carga certificados de juegos y Resoluciones Directorales MINCETUR.
-            Genera archivos Excel listos para validación y control regulatorio.
+            html,
+            body {{
+                margin: 0;
+                padding: 0;
+                background: transparent;
+                color: #ffffff;
+                font-family: "Source Sans Pro", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+                overflow: hidden;
+            }}
+
+            .brand-shell {{
+                display: flex;
+                align-items: center;
+                gap: 24px;
+                width: 100%;
+                box-sizing: border-box;
+                padding: 0 2px;
+            }}
+
+            .brand-logo-card {{
+                flex: 0 0 104px;
+                width: 104px;
+                height: 104px;
+                background: #ffffff;
+                border-radius: 18px;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                box-shadow: 0 14px 30px rgba(0, 0, 0, 0.10);
+                overflow: hidden;
+            }}
+
+            .brand-logo {{
+                width: 78px;
+                height: 78px;
+                object-fit: contain;
+                display: block;
+            }}
+
+            .brand-logo-fallback {{
+                width: 78px;
+                height: 78px;
+                border-radius: 16px;
+                background: var(--mc-yellow);
+                color: #000000;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                font-size: 2rem;
+                font-weight: 900;
+            }}
+
+            .brand-hero {{
+                flex: 1 1 auto;
+                min-width: 0;
+                min-height: 128px;
+                background: linear-gradient(135deg, #0B0B0B 0%, #1E1E1E 58%, #FFC629 100%);
+                padding: 28px 32px;
+                border-radius: 26px;
+                border: 2px solid var(--mc-yellow);
+                box-shadow: 0 18px 45px rgba(0, 0, 0, 0.16);
+                display: flex;
+                flex-direction: column;
+                justify-content: center;
+                box-sizing: border-box;
+                overflow: visible;
+            }}
+
+            .brand-title {{
+                color: #ffffff !important;
+                font-size: 2.25rem;
+                font-weight: 900;
+                margin: 0;
+                line-height: 1.1;
+                letter-spacing: -0.03em;
+                text-shadow: 0 3px 12px rgba(0, 0, 0, 0.85);
+                -webkit-text-fill-color: #ffffff;
+            }}
+
+            .brand-subtitle {{
+                color: #ffffff !important;
+                font-size: 1rem;
+                font-weight: 700;
+                margin-top: 18px;
+                max-width: 1080px;
+                text-shadow: 0 2px 8px rgba(0, 0, 0, 0.75);
+                -webkit-text-fill-color: #ffffff;
+            }}
+
+            @media (max-width: 900px) {{
+                .brand-shell {{
+                    flex-direction: column;
+                    align-items: stretch;
+                    gap: 14px;
+                }}
+
+                .brand-logo-card {{
+                    width: 90px;
+                    height: 90px;
+                    flex-basis: 90px;
+                }}
+
+                .brand-logo {{
+                    width: 68px;
+                    height: 68px;
+                }}
+
+                .brand-hero {{
+                    min-height: auto;
+                    padding: 24px;
+                }}
+
+                .brand-title {{
+                    font-size: 1.8rem;
+                }}
+            }}
+        </style>
+    </head>
+    <body>
+        <div class="brand-shell">
+            <div class="brand-logo-card">{logo_html}</div>
+            <div class="brand-hero">
+                <div class="brand-title">{APP_TITLE}</div>
+                <div class="brand-subtitle">
+                    Carga certificados de juegos y Resoluciones Directorales MINCETUR.
+                    Genera archivos Excel listos para validación y control regulatorio.
+                </div>
+            </div>
         </div>
-    </div>
-</div>
-"""
+    </body>
+    </html>
+    """
 
-    st.markdown(
-        textwrap.dedent(html),
-        unsafe_allow_html=True,
-    )
-
+    components.html(header_html, height=150, scrolling=False)
 
 def render_sidebar():
     with st.sidebar:
