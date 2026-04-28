@@ -493,17 +493,17 @@ def render_css():
                 font-weight: 900;
                 margin: 0;
                 line-height: 1.1;
-                letter-spacing: -0.02em;
-                text-shadow: 0 3px 10px rgba(0, 0, 0, 0.65);
+                letter-spacing: -0.03em;
+                text-shadow: 0 3px 12px rgba(0, 0, 0, 0.75);
             }}
 
             .brand-hero .brand-subtitle {{
                 color: #FFFFFF !important;
                 font-size: 1rem;
-                font-weight: 600;
-                margin-top: 12px;
-                max-width: 950px;
-                text-shadow: 0 2px 8px rgba(0, 0, 0, 0.55);
+                font-weight: 700;
+                margin-top: 16px;
+                max-width: 980px;
+                text-shadow: 0 2px 8px rgba(0, 0, 0, 0.75);
             }}
 
             /* Cards de estado */
@@ -736,7 +736,7 @@ def render_header():
                 st.markdown(
                     f"""
                     <div class="brand-hero">
-                        <h1 class="brand-title">{APP_TITLE}</h1>
+                        <div class="brand-title">{APP_TITLE}</div>
                         <div class="brand-subtitle">
                             Carga certificados de juegos y Resoluciones Directorales MINCETUR.
                             Genera archivos Excel listos para validación y control regulatorio.
