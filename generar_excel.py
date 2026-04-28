@@ -245,7 +245,31 @@ def extract_header(full_text, pages):
 
     if not report_reference:
         m = re.search(
-            r"N[uú]mero de reporte\s+([A-Z]{2}-\d{3}-[A-Z]{3}-\d{2}-\d{2}-\d{3}(?:\(\d+\))?)",
+            r"N[uú]mero de reporte\s+([A-Z]{2}-\d{3}-[A-Z]{3}-\d{2}-\d{2,3}-\d{3}(?:\(\d+\))?)",
+            compact,
+            re.I,
+        )
+        if m:
+            report_reference = m.group(1).upper()
+
+    # Fallback GLI adicional:
+    # Algunos certificados GLI colocan la referencia principal en el título:
+    # "CERTIFICADO DE CUMPLIMIENTO No. MO-246-PPL-25-154"
+    # y luego el código completo como "Código de identificación del informe: MO-246-PPL-25-154-684".
+    # Si el campo anterior no se capturó por variaciones del PDF, tomamos el código más completo disponible.
+    if not report_reference:
+        candidates = re.findall(
+            r"\b[A-Z]{2}-\d{3}-[A-Z]{3}-\d{2}-\d{2,3}-\d{3}(?:\(\d+\))?\b",
+            compact,
+            flags=re.I,
+        )
+        if candidates:
+            # Preferir el primer código completo encontrado, normalmente el de identificación del informe.
+            report_reference = candidates[0].upper()
+
+    if not report_reference:
+        m = re.search(
+            r"CERTIFICADO DE CUMPLIMIENTO\s+No\.\s*([A-Z]{2}-\d{3}-[A-Z]{3}-\d{2}-\d{2,3})",
             compact,
             re.I,
         )
@@ -736,12 +760,26 @@ def build_rows_for_pdf(pdf):
     extracted = len(games)
     doc_type = header.get("document_type", "UNKNOWN")
 
+    missing_fields = []
+
+    if not header.get("report_reference"):
+        missing_fields.append("Report Reference")
+
+    if not header.get("report_date"):
+        missing_fields.append("Report Date")
+
+    if not header.get("provider"):
+        missing_fields.append("Game Provider")
+
     if extracted == 0:
         status = "REVISAR"
         message = f"No se extrajeron juegos. Tipo detectado: {doc_type}"
     elif expected is not None and expected != extracted:
         status = "REVISAR"
         message = f"Esperados {expected}, extraídos {extracted}"
+    elif missing_fields:
+        status = "REVISAR"
+        message = "Campos faltantes: " + ", ".join(missing_fields)
     else:
         status = "OK"
         message = ""
