@@ -3,6 +3,7 @@ import base64
 import re
 import tempfile
 import shutil
+from datetime import datetime
 
 import fitz
 import pandas as pd
@@ -366,8 +367,11 @@ def init_session_state():
         "audit_rows": [],
         "excel_downloaded": False,
         "audit_downloaded": False,
+        "certificate_excel_filename": "B2B_TEMPLATE_GAMES_INTEGRATIONS_COMPLETADO.xlsx",
+        "certificate_audit_filename": "auditoria_certificados.csv",
         "uploader_key": 0,
         "last_error": None,
+        "certificate_upload_signature": None,
         # Resoluciones MINCETUR.
         "mincetur_processed": False,
         "mincetur_excel_bytes": None,
@@ -390,6 +394,8 @@ def reset_certificate_results():
     st.session_state.audit_rows = []
     st.session_state.excel_downloaded = False
     st.session_state.audit_downloaded = False
+    st.session_state.certificate_excel_filename = "B2B_TEMPLATE_GAMES_INTEGRATIONS_COMPLETADO.xlsx"
+    st.session_state.certificate_audit_filename = "auditoria_certificados.csv"
     st.session_state.last_error = None
 
 
@@ -976,6 +982,14 @@ def render_certificates_tab():
         key=f"pdf_uploader_{st.session_state.uploader_key}",
     )
 
+    # Si el usuario carga otro conjunto de PDFs, se limpian resultados anteriores
+    # para evitar descargar por error un Excel generado con otra carga.
+    upload_signature = tuple((file.name, getattr(file, "size", None)) for file in uploaded_files) if uploaded_files else None
+    if upload_signature and upload_signature != st.session_state.certificate_upload_signature:
+        if st.session_state.processed:
+            reset_certificate_results()
+        st.session_state.certificate_upload_signature = upload_signature
+
     if not uploaded_files and not st.session_state.processed:
         st.markdown(
             """
@@ -1036,6 +1050,9 @@ def render_certificates_tab():
                         st.session_state.audit_bytes = load_file_bytes(output_audit)
                         st.session_state.audit_rows = audit_rows
                         st.session_state.audit_df = pd.DataFrame(audit_rows)
+                        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                        st.session_state.certificate_excel_filename = f"B2B_certificados_{timestamp}.xlsx"
+                        st.session_state.certificate_audit_filename = f"auditoria_certificados_{timestamp}.csv"
                         st.session_state.processed = True
                         st.session_state.excel_downloaded = False
                         st.session_state.audit_downloaded = False
@@ -1127,7 +1144,7 @@ def render_certificates_result_summary(show_downloads=False):
             st.download_button(
                 label="Descargar Excel B2B completado",
                 data=st.session_state.excel_bytes,
-                file_name="B2B_TEMPLATE_GAMES_INTEGRATIONS_COMPLETADO.xlsx",
+                file_name=st.session_state.certificate_excel_filename,
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                 type="primary",
                 use_container_width=True,
@@ -1141,7 +1158,7 @@ def render_certificates_result_summary(show_downloads=False):
             st.download_button(
                 label="Descargar CSV de auditoría",
                 data=st.session_state.audit_bytes,
-                file_name="auditoria_certificados.csv",
+                file_name=st.session_state.certificate_audit_filename,
                 mime="text/csv",
                 use_container_width=True,
                 disabled=st.session_state.audit_downloaded,
@@ -1188,7 +1205,7 @@ def render_downloads_tab():
         st.download_button(
             label="Descargar Excel B2B completado",
             data=st.session_state.excel_bytes,
-            file_name="B2B_TEMPLATE_GAMES_INTEGRATIONS_COMPLETADO.xlsx",
+            file_name=st.session_state.certificate_excel_filename,
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             type="primary",
             use_container_width=True,
@@ -1202,7 +1219,7 @@ def render_downloads_tab():
         st.download_button(
             label="Descargar CSV de auditoría",
             data=st.session_state.audit_bytes,
-            file_name="auditoria_certificados.csv",
+            file_name=st.session_state.certificate_audit_filename,
             mime="text/csv",
             use_container_width=True,
             disabled=st.session_state.audit_downloaded,
