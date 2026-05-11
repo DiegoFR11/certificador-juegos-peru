@@ -24,6 +24,10 @@ FIELD_MAP = {
     "RNG report date": "rng_report_date",
     "RNG Issued by:": "rng_issued_by",
     "RNG Issued by": "rng_issued_by",
+    "RNG issued by:": "rng_issued_by",
+    "RNG issued by": "rng_issued_by",
+    "RNG Report Reference": "rng_report_reference",
+    "RNG Report Date": "rng_report_date",
     "Sample": "sample",
     "BMM revision status": "bmm_revision_status",
     "Match with Jurisdiction in scope": "match_with_jurisdiction_in_scope",
@@ -348,16 +352,30 @@ def extract_header(full_text, pages):
             rng_report_reference = m.group(0).upper()
             rng_issued_by = "QUINEL Ltd" if "QUINEL" in full_text else ""
 
-    # GLI RNG.
+    # GLI RNG / GNA.
+    # Soporta formatos como:
+    # "Certificado de Cumplimiento No RN-556-EGI-22-01-684 emitido por GLI el 13 febrero 2024"
+    # "Certificado de Cumplimiento No RN-400-PPL-22-02-684 emitido por GLI el 19/06/2024"
     if not rng_report_reference:
+        date_pattern = (
+            r"\d{1,2}/\d{1,2}/\d{4}"
+            r"|\d{1,2}\s+(?:de\s+)?[a-záéíóúñ]+\s+(?:de\s+)?\d{4}"
+            r"|\d{1,2}-[A-Z]{3}-\d{2,4}"
+        )
+
         m = re.search(
-            r"Certificado de Cumplimiento\s+No\s+([A-Z]{2}-\d{3}-[A-Z]{3}-\d{2}-\d{2}-\d{3})\s+emitido\s+por\s+([^\.]+?)\s+el\s+(\d{2}/\d{2}/\d{4})",
+            r"Certificado\s+de\s+Cumplimiento\s+No\.?\s+"
+            rf"({RE_GLI_REPORT_FULL.pattern})"
+            r"\s+emitido\s+por\s+(.+?)\s+el\s+"
+            rf"({date_pattern})",
             compact,
             re.I,
         )
+
         if m:
             rng_report_reference = m.group(1).upper()
-            rng_issued_by = "GLI" if "gli" in m.group(2).lower() else clean(m.group(2))
+            issuer = clean(m.group(2))
+            rng_issued_by = "GLI" if "gli" in issuer.lower() else issuer
             rng_report_date = date_to_excel(m.group(3))
 
     jurisdiction = "YES" if re.search(r"Jurisdicci[oó]n:?\s*Per[uú]", compact, re.I) else ""
