@@ -1,0 +1,5 @@
+PyMuPDF==1.24.14
+openpyxl==3.1.5
+pandas
+streamlit
+streamlit-authenticator==0.2.3
