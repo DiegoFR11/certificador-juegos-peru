@@ -9,6 +9,7 @@ import fitz
 import pandas as pd
 import streamlit as st
 import streamlit.components.v1 as components
+import streamlit_authenticator as stauth
 from openpyxl import Workbook
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 
@@ -65,6 +66,72 @@ def find_template():
 def load_file_bytes(path):
     with open(path, "rb") as file:
         return file.read()
+
+
+# =========================
+# AUTENTICACIÓN
+# =========================
+
+
+def render_login_header():
+    """Muestra el branding MiCasino sobre el formulario de login."""
+    logo_bytes = get_logo_bytes()
+    _, col, _ = st.columns([1, 1.5, 1])
+    with col:
+        if logo_bytes:
+            st.image(logo_bytes, width=100)
+        st.markdown(
+            f"""
+            <div style="text-align:center; padding: 8px 0 24px 0;">
+                <h2 style="font-weight:900; color:{MI_CASINO_BLACK}; margin:0;">{APP_TITLE}</h2>
+                <p style="color:#6B7280; margin:6px 0 0 0;">MiCasino.com · Acceso interno</p>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+
+
+def authenticate():
+    """
+    Maneja el flujo de autenticación.
+
+    Lee credenciales desde st.secrets (configuradas en Streamlit Cloud o
+    en .streamlit/secrets.toml localmente). Si el usuario no está autenticado
+    muestra la pantalla de login y detiene la ejecución del resto de la app.
+    """
+    if "credentials" not in st.secrets:
+        st.error(
+            "Credenciales no configuradas. "
+            "Contacta al administrador para configurar secrets.toml."
+        )
+        st.stop()
+
+    credentials = {
+        "usernames": {
+            username: dict(data)
+            for username, data in st.secrets["credentials"]["usernames"].items()
+        }
+    }
+
+    authenticator = stauth.Authenticate(
+        credentials,
+        st.secrets["cookie"]["name"],
+        st.secrets["cookie"]["key"],
+        int(st.secrets["cookie"]["expiry_days"]),
+    )
+
+    if not st.session_state.get("authentication_status"):
+        render_login_header()
+
+    name, auth_status, _ = authenticator.login("Iniciar sesión", "main")
+
+    if auth_status is False:
+        st.error("Usuario o contraseña incorrectos.")
+        st.stop()
+    elif auth_status is None:
+        st.stop()
+
+    return authenticator, name
 
 
 # =========================
@@ -185,7 +252,7 @@ def strip_known_manufacturer(value, manufacturer):
 
     # Fallback genérico para fabricantes que terminan en LIMITED, LTD, LLC, INC, etc.
     value = re.sub(
-        r"^(?:[A-ZÁÉÍÓÚÑ0-9&.,'’\-]+\s+){0,8}"
+        r"^(?:[A-ZÁÉÍÓÚÑ0-9&.,''\-]+\s+){0,8}"
         r"(?:LIMITED|LTD\.?|LLC|INC\.?|CORP\.?|S\.?A\.?C?\.?|GMBH)\s+",
         "",
         value,
@@ -893,7 +960,7 @@ def render_header():
 
     components.html(header_html, height=150, scrolling=False)
 
-def render_sidebar():
+def render_sidebar(authenticator=None):
     with st.sidebar:
         logo_bytes = get_logo_bytes()
         if logo_bytes:
@@ -933,6 +1000,11 @@ def render_sidebar():
             '<p class="sidebar-action-note">Limpia resultados, descargas y archivos cargados visualmente.</p>',
             unsafe_allow_html=True,
         )
+
+        if authenticator:
+            st.divider()
+            st.markdown("### Sesión")
+            authenticator.logout("Cerrar sesión", "sidebar")
 
 
 def style_audit_table(df):
@@ -1394,7 +1466,10 @@ def main():
 
     init_session_state()
     render_css()
-    render_sidebar()
+
+    authenticator, name = authenticate()
+
+    render_sidebar(authenticator)
     render_header()
 
     tab_certificates, tab_mincetur = st.tabs(
