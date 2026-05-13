@@ -12,6 +12,21 @@ from openpyxl import load_workbook
 
 CLIENT_MARKER = "to be completed by the client"
 
+# =============================================================================
+# CERTIFICADORAS CONOCIDAS
+# Para agregar una nueva empresa: añadir una entrada con su nombre interno y
+# las palabras clave que aparecen en sus PDFs (en minúsculas).
+#
+# Ejemplo:
+#   "BMM": ["bmm testlabs", "bmm.com"],
+#   "ITECH": ["itech labs", "itechlabs.com"],
+# =============================================================================
+KNOWN_CERTIFIERS = {
+    "GLI":    ["gaming laboratories international", "gaminglabs.com", "gli®"],
+    "QUINEL": ["quinel"],
+    # — Agregar nuevas certificadoras aquí —
+}
+
 FIELD_MAP = {
     "Game Provider": "provider",
     "Game Manufacturer": "manufacturer",
@@ -33,7 +48,6 @@ FIELD_MAP = {
     "Match with Jurisdiction in scope": "match_with_jurisdiction_in_scope",
     "General Result is PASS ": "general_result_is_pass",
     "General Result is PASS": "general_result_is_pass",
-    # Posibles nombres si la plantilla llega a incorporar el código único.
     "Unique Code": "unique_code",
     "Unique code": "unique_code",
     "Código único": "unique_code",
@@ -51,11 +65,6 @@ RE_REPORT_RNG = re.compile(r"PE_[A-Z]{3}\d+RNG\.\d+_REV\.\d+", re.I)
 RE_VERSION = re.compile(r"(?:cv|v)?\d+(?:\.\d+){1,3}(?:\.?r)?|N/A", re.I)
 RE_ITEM = re.compile(r"G\d{3}", re.I)
 
-# Referencias GLI/MO.
-# Ejemplos válidos:
-# - MO-246-PPL-25-154-684
-# - MO-246-PPL-25-154-684(1)
-# - MO-246-PPL-25-154
 RE_GLI_REPORT_FULL = re.compile(
     r"\b[A-Z]{2}-\d{3}-[A-Z]{3}-\d{2}-\d{2,3}-\d{3}(?:\(\d+\))?\b",
     re.I,
@@ -64,23 +73,25 @@ RE_GLI_REPORT_SHORT = re.compile(
     r"\b[A-Z]{2}-\d{3}-[A-Z]{3}-\d{2}-\d{2,3}\b",
     re.I,
 )
+
+# Patrón genérico para referencias de informe de cualquier certificadora.
+# Captura combinaciones de letras+números separadas por guiones o barras.
+RE_GENERIC_REPORT = re.compile(
+    r"\b[A-Z]{2,6}[-/][A-Z0-9]{2,8}[-/][A-Z0-9]{2,8}(?:[-/][A-Z0-9]{1,8})*\b",
+    re.I,
+)
+
 SPANISH_MONTHS = {
-    "enero": "01",
-    "febrero": "02",
-    "marzo": "03",
-    "abril": "04",
-    "mayo": "05",
-    "junio": "06",
-    "julio": "07",
-    "agosto": "08",
-    "septiembre": "09",
-    "setiembre": "09",
-    "octubre": "10",
-    "noviembre": "11",
-    "diciembre": "12",
+    "enero": "01", "febrero": "02", "marzo": "03", "abril": "04",
+    "mayo": "05", "junio": "06", "julio": "07", "agosto": "08",
+    "septiembre": "09", "setiembre": "09", "octubre": "10",
+    "noviembre": "11", "diciembre": "12",
 }
 
 
+# =============================================================================
+# UTILIDADES
+# =============================================================================
 
 def clean(value):
     """Normaliza espacios y convierte None a texto vacío."""
@@ -105,7 +116,6 @@ def date_to_excel(value):
         if month:
             return f"{day}-{month}-{year}"
 
-    # GLI a veces usa fechas como "01 abril 2024" sin "de".
     m = re.search(r"(\d{1,2})\s+([a-záéíóúñ]+)\s+(\d{4})", value, re.I)
     if m:
         day = m.group(1).zfill(2)
@@ -132,13 +142,74 @@ def date_to_excel(value):
     return value
 
 
-def extract_gli_report_reference(compact_text):
-    """
-    Extrae la referencia principal de certificados GLI.
+# =============================================================================
+# DETECCIÓN DE TIPO Y CERTIFICADORA
+# =============================================================================
 
-    Prioriza códigos completos como MO-246-PPL-25-154-684 sobre códigos
-    cortos de título como MO-246-PPL-25-154.
+def detect_document_type(full_text):
     """
+    Identifica el tipo de documento.
+
+    Retorna uno de:
+      GLI_GAME_CERTIFICATE, QUINEL_GAME_CERTIFICATE,
+      <NOMBRE>_GAME_CERTIFICATE (para certificadoras en KNOWN_CERTIFIERS),
+      GENERIC_CERTIFICATE (certificado de alguna empresa no configurada),
+      MINCETUR_RESOLUTION, RNG_GNA, UNKNOWN.
+    """
+    compact = re.sub(r"\s+", " ", full_text).lower()
+
+    if "resolución directoral" in compact or "resolucion directoral" in compact:
+        return "MINCETUR_RESOLUTION"
+
+    for certifier, keywords in KNOWN_CERTIFIERS.items():
+        if any(kw in compact for kw in keywords):
+            return f"{certifier}_GAME_CERTIFICATE"
+
+    if re.search(r"tipo de certificaci[oó]n:\s*generador de n[uú]meros aleatorios|\bGNA\b|\bRNG\b", compact, re.I):
+        return "RNG_GNA"
+
+    # Detección genérica: cualquier documento con lenguaje de certificación.
+    generic_keywords = [
+        "certificado de cumplimiento", "certificate of compliance",
+        "compliance certificate", "test report", "certification report",
+        "informe de prueba", "informe de certificación", "conformity certificate",
+    ]
+    if any(kw in compact for kw in generic_keywords):
+        return "GENERIC_CERTIFICATE"
+
+    return "UNKNOWN"
+
+
+def try_detect_certifier(full_text):
+    """
+    Intenta identificar el nombre de la certificadora en documentos no configurados.
+    Útil para dar contexto en el mensaje de auditoría.
+    """
+    compact = re.sub(r"\s+", " ", full_text)
+
+    patterns = [
+        r"emitido\s+por\s+([A-Za-zÁÉÍÓÚÑáéíóúñ0-9\s&.,\-]{4,60}?)(?:\s+el\s+\d|\s+en\s+|\.|,|\n)",
+        r"issued\s+by\s+([A-Za-z0-9\s&.,\-]{4,60}?)(?:\s+on\s+\d|\.|,|\n)",
+        r"prepared\s+by\s+([A-Za-z0-9\s&.,\-]{4,60}?)(?:\s+on\s+\d|\.|,|\n)",
+        r"certificado\s+(?:emitido\s+)?por\s+([A-Za-zÁÉÍÓÚÑáéíóúñ0-9\s&.,\-]{4,60}?)(?:\s+|\.|,)",
+    ]
+
+    for pattern in patterns:
+        m = re.search(pattern, compact, re.I)
+        if m:
+            name = clean(m.group(1)).strip(" ,.")
+            if name and len(name) > 3:
+                return name
+
+    return ""
+
+
+# =============================================================================
+# EXTRACCIÓN DE ENCABEZADO — CERTIFICADORAS CONOCIDAS
+# =============================================================================
+
+def extract_gli_report_reference(compact_text):
+    """Extrae la referencia principal de certificados GLI."""
     compact_text = clean(compact_text)
 
     label_patterns = [
@@ -153,12 +224,10 @@ def extract_gli_report_reference(compact_text):
         if m:
             return m.group(1).upper()
 
-    # Fallback: tomar el primer código completo disponible en el certificado.
     candidates = RE_GLI_REPORT_FULL.findall(compact_text)
     if candidates:
         return candidates[0].upper()
 
-    # Último fallback: algunos títulos solo traen el código corto.
     m = re.search(
         r"CERTIFICADO\s+DE\s+CUMPLIMIENTO\s+No\.?\s*"
         f"({RE_GLI_REPORT_SHORT.pattern})",
@@ -171,41 +240,128 @@ def extract_gli_report_reference(compact_text):
     return ""
 
 
-def split_joined_unique_code(text):
+# =============================================================================
+# EXTRACCIÓN GENÉRICA — FALLBACK PARA CERTIFICADORAS DESCONOCIDAS
+# =============================================================================
+
+def extract_generic_report_reference(compact_text):
     """
-    Detecta códigos únicos incluso si el PDF los parte en dos líneas/tokens.
-
-    Ejemplo:
-    66436d3fc069e70 0017e663e_961 -> 66436d3fc069e700017e663e_961
+    Extrae una referencia de informe usando patrones universales.
+    Se activa cuando la certificadora no está en KNOWN_CERTIFIERS.
     """
-    value = clean(text)
+    label_patterns = [
+        r"(?:report\s+(?:reference|number|no\.?)|certificate\s+no\.?|"
+        r"informe\s+n[°º]?|referencia\s+del\s+informe|c[oó]digo\s+del\s+informe)\s*:?\s*"
+        r"([A-Z0-9][A-Z0-9\-_/]{4,40})",
+    ]
 
-    # Caso 1: código completo en un solo token.
-    m = re.search(r"([A-Za-z0-9]{12,}_[0-9.]+)$", value)
+    for pattern in label_patterns:
+        m = re.search(pattern, compact_text, re.I)
+        if m:
+            return clean(m.group(1)).upper()
+
+    # Fallback: primer código que parezca referencia (letras+guión+números)
+    candidates = RE_GENERIC_REPORT.findall(compact_text)
+    for candidate in candidates:
+        # Excluir fechas y versiones
+        if not re.match(r"\d{2}[-/]\d{2}[-/]\d{2,4}", candidate):
+            return candidate.upper()
+
+    return ""
+
+
+def extract_generic_date(compact_text):
+    """Extrae la primera fecha válida que encuentre en cualquier formato."""
+    date_patterns = [
+        r"(?:fecha|date|issued?|emitido?)\s*:?\s*(\d{1,2}/\d{1,2}/\d{4})",
+        r"(?:fecha|date|issued?|emitido?)\s*:?\s*(\d{1,2}\s+de\s+[a-záéíóúñ]+\s+de\s+\d{4})",
+        r"(?:fecha|date|issued?|emitido?)\s*:?\s*(\d{1,2}\s+[a-záéíóúñ]+\s+\d{4})",
+        r"(?:fecha|date|issued?|emitido?)\s*:?\s*(\d{1,2}-[A-Z]{3}-\d{2,4})",
+    ]
+
+    for pattern in date_patterns:
+        m = re.search(pattern, compact_text, re.I)
+        if m:
+            result = date_to_excel(m.group(1))
+            if result:
+                return result
+
+    # Fallback: primera fecha dd/mm/yyyy que aparezca
+    m = re.search(r"\b(\d{2}/\d{2}/\d{4})\b", compact_text)
     if m:
-        return value[:m.start()].strip(), m.group(1)
+        return date_to_excel(m.group(1))
 
-    # Caso 2: código partido en dos tokens antes de la versión.
-    # Se permite una primera parte larga y una segunda parte con _.
-    m = re.search(r"([A-Za-z0-9]{8,})\s+([A-Za-z0-9]{6,}_[0-9.]+)$", value)
-    if m:
-        unique_code = f"{m.group(1)}{m.group(2)}"
-        return value[:m.start()].strip(), unique_code
-
-    return value, ""
+    return ""
 
 
-def is_version(value):
-    return bool(RE_VERSION.fullmatch(clean(value)))
+def extract_generic_provider(compact_text):
+    """Extrae el nombre del proveedor/solicitante con patrones genéricos."""
+    patterns = [
+        r"(?:solicitante|applicant|cliente|client|game\s+provider)\s*:?\s*([A-Za-zÁÉÍÓÚÑáéíóúñ0-9\s&.,\-]{4,80}?)(?:\.|,|\n|$)",
+        r"(?:nombre\s+y\s+datos\s+del\s+solicitante)\s*:?\s*([A-Za-zÁÉÍÓÚÑáéíóúñ0-9\s&.,\-]{4,80}?)(?:\.|,|\n|$)",
+        r"(?:prepared\s+for|submitted\s+by)\s*:?\s*([A-Za-z0-9\s&.,\-]{4,80}?)(?:\.|,|\n|$)",
+    ]
+
+    for pattern in patterns:
+        m = re.search(pattern, compact_text, re.I)
+        if m:
+            name = clean(m.group(1)).strip(" ,.")
+            if name and len(name) > 3:
+                return name
+
+    return ""
 
 
-def is_unique_code(value):
-    value = clean(value)
-    return bool(
-        re.fullmatch(r"[A-Za-z0-9]{12,}_[0-9.]+", value)
-        or re.fullmatch(r"[A-Za-z0-9]{8,}\s+[A-Za-z0-9]{6,}_[0-9.]+", value)
+def extract_generic_games(full_text):
+    """
+    Extracción genérica de juegos para certificadoras no configuradas.
+
+    Busca cualquier par (nombre, versión) en el texto donde la versión
+    siga el patrón estándar. No es perfecta pero es mejor que no extraer nada.
+    """
+    games = []
+    compact = re.sub(r"\s+", " ", full_text)
+
+    version_pat = r"(?:cv|v)?\d+(?:\.\d+){1,3}(?:\.?r)?|N/A"
+
+    # Patrón: nombre de juego (capitalizado, 3-80 chars) seguido de versión
+    row_pattern = re.compile(
+        r"(?P<name>[A-ZÁÉÍÓÚÑ][A-Za-zÁÉÍÓÚÑáéíóúñ0-9+&''\-\. ]{2,80}?)\s+"
+        rf"(?P<version>{version_pat})\s+"
+        r"(?P<type>[A-Za-zÁÉÍÓÚÑáéíóúñ\s]{3,40}?)\s+HTML5\b",
+        re.I,
     )
 
+    seen = set()
+    for idx, m in enumerate(row_pattern.finditer(compact), start=1):
+        name = clean(m.group("name"))
+        version = clean(m.group("version"))
+        game_type = clean(m.group("type"))
+
+        if not name or len(name) > 80:
+            continue
+        if re.search(r"NOMBRE|VERSI[OÓ]N|TIPO|PRODUCTO|INFORME|FECHA", name, re.I):
+            continue
+
+        key = (name.lower(), version.lower())
+        if key in seen:
+            continue
+        seen.add(key)
+
+        games.append({
+            "item": f"GEN{idx:03d}",
+            "game_name": name,
+            "game_type": game_type or "Juego",
+            "sample": version,
+            "unique_code": "",
+        })
+
+    return games
+
+
+# =============================================================================
+# LECTURA DE PDF
+# =============================================================================
 
 def read_pdf_text(pdf_path):
     """Lee texto del PDF y devuelve texto completo + lista de líneas por página."""
@@ -247,31 +403,12 @@ def next_value(lines, label):
     return ""
 
 
-def detect_document_type(full_text):
-    compact = re.sub(r"\s+", " ", full_text).lower()
-
-    if "resolución directoral" in compact or "resolucion directoral" in compact:
-        return "MINCETUR_RESOLUTION"
-
-    if "gaming laboratories international" in compact or "gaminglabs.com" in compact or "gli®" in compact:
-        return "GLI_GAME_CERTIFICATE"
-
-    if "quinel" in compact:
-        return "QUINEL_GAME_CERTIFICATE"
-
-    if re.search(r"tipo de certificaci[oó]n:\s*generador de n[uú]meros aleatorios|\bGNA\b|\bRNG\b", compact, re.I):
-        return "RNG_GNA"
-
-    return "UNKNOWN"
-
-
+# =============================================================================
+# EXTRACCIÓN DE ENCABEZADO
+# =============================================================================
 
 def extract_expected_count(full_text):
-    """
-    Extrae conteo esperado desde frases como:
-    Tipo de Producto: ... (30 juegos)
-    Tipo de Producto: ... (1 juego)
-    """
+    """Extrae conteo esperado desde frases como 'Tipo de Producto: ... (30 juegos)'."""
     compact = re.sub(r"\s+", " ", full_text)
     m = re.search(r"Tipo de Producto:.*?\((\d+)\s*juego", compact, re.I)
     if m:
@@ -280,17 +417,23 @@ def extract_expected_count(full_text):
 
 
 def extract_header(full_text, pages):
+    """
+    Extrae el encabezado del certificado.
+
+    Para certificadoras en KNOWN_CERTIFIERS usa extractores específicos.
+    Para documentos GENERIC_CERTIFICATE o UNKNOWN aplica fallbacks genéricos
+    e intenta extraer los campos clave con patrones universales.
+    """
     first = pages[0] if pages else []
     compact = re.sub(r"\s+", " ", full_text)
     doc_type = detect_document_type(full_text)
 
     report_reference = ""
 
-    # QUINEL / PE_BOG style.
+    # ── Extracción específica por certificadora ──────────────────────────────
     m = re.search(
         r"CERTIFICADO DE CUMPLIMIENTO\s*N[°º]?\s*(PE_[A-Z]{3}\d+GAM\.\d+_REV\.\d+)",
-        compact,
-        re.I,
+        compact, re.I,
     )
     if not m:
         m = re.search(r"ID del Informe:\s*(PE_[A-Z]{3}\d+GAM\.\d+_REV\.\d+)", compact, re.I)
@@ -299,10 +442,14 @@ def extract_header(full_text, pages):
     if m:
         report_reference = m.group(1).upper()
 
-    # GLI / MO style.
     if not report_reference:
         report_reference = extract_gli_report_reference(compact)
 
+    # ── Fallback genérico para certificadoras desconocidas ───────────────────
+    if not report_reference and doc_type in ("GENERIC_CERTIFICATE", "UNKNOWN"):
+        report_reference = extract_generic_report_reference(compact)
+
+    # ── Fecha ────────────────────────────────────────────────────────────────
     report_date = ""
 
     m = re.search(r"Fecha de emisión:\s*(\d{2}/\d{2}/\d{4})", compact, re.I)
@@ -329,18 +476,25 @@ def extract_header(full_text, pages):
             if report_date:
                 break
 
+    if not report_date and doc_type in ("GENERIC_CERTIFICATE", "UNKNOWN"):
+        report_date = extract_generic_date(compact)
+
+    # ── Proveedor / fabricante ───────────────────────────────────────────────
     provider = next_value(first, r"Nombre y datos del solicitante")
     manufacturer = next_value(first, r"Nombre y datos del Fabricante") or provider
 
+    if not provider and doc_type in ("GENERIC_CERTIFICATE", "UNKNOWN"):
+        provider = extract_generic_provider(compact)
+        manufacturer = provider
+
+    # ── Datos RNG ────────────────────────────────────────────────────────────
     rng_report_reference = ""
     rng_report_date = ""
     rng_issued_by = ""
 
-    # QUINEL RNG.
     m = re.search(
         r"(PE_[A-Z]{3}\d+RNG\.\d+_REV\.\d+)\s+emitido\s+por\s+([^\.]+?)\s+el\s+(\d{2}/\d{2}/\d{4})",
-        compact,
-        re.I,
+        compact, re.I,
     )
     if m:
         rng_report_reference = m.group(1).upper()
@@ -352,43 +506,39 @@ def extract_header(full_text, pages):
             rng_report_reference = m.group(0).upper()
             rng_issued_by = "QUINEL Ltd" if "QUINEL" in full_text else ""
 
-    # GLI RNG / GNA.
-    # Soporta formatos como:
-    # "Certificado de Cumplimiento No RN-556-EGI-22-01-684 emitido por GLI el 13 febrero 2024"
-    # "Certificado de Cumplimiento No RN-400-PPL-22-02-684 emitido por GLI el 19/06/2024"
     if not rng_report_reference:
         date_pattern = (
             r"\d{1,2}/\d{1,2}/\d{4}"
             r"|\d{1,2}\s+(?:de\s+)?[a-záéíóúñ]+\s+(?:de\s+)?\d{4}"
             r"|\d{1,2}-[A-Z]{3}-\d{2,4}"
         )
-
         m = re.search(
             r"Certificado\s+de\s+Cumplimiento\s+No\.?\s+"
             rf"({RE_GLI_REPORT_FULL.pattern})"
             r"\s+emitido\s+por\s+(.+?)\s+el\s+"
             rf"({date_pattern})",
-            compact,
-            re.I,
+            compact, re.I,
         )
-
         if m:
             rng_report_reference = m.group(1).upper()
             issuer = clean(m.group(2))
             rng_issued_by = "GLI" if "gli" in issuer.lower() else issuer
             rng_report_date = date_to_excel(m.group(3))
 
-    jurisdiction = "YES" if re.search(r"Jurisdicci[oó]n:?\s*Per[uú]", compact, re.I) else ""
-    result_pass = "YES" if re.search(r"Conclusi[oó]n:?\s*CUMPLE", compact, re.I) else ""
-
-    if doc_type == "GLI_GAME_CERTIFICATE":
+    # ── issued_by ────────────────────────────────────────────────────────────
+    if "GLI_GAME_CERTIFICATE" in doc_type:
         issued_by = "GLI"
-    elif "QUINEL" in full_text:
+    elif "QUINEL_GAME_CERTIFICATE" in doc_type:
         issued_by = "QUINEL Ltd"
     elif "GAMING LABORATORIES INTERNATIONAL" in full_text.upper():
         issued_by = "GLI"
+    elif doc_type in ("GENERIC_CERTIFICATE", "UNKNOWN"):
+        issued_by = try_detect_certifier(compact)
     else:
         issued_by = ""
+
+    jurisdiction = "YES" if re.search(r"Jurisdicci[oó]n:?\s*Per[uú]", compact, re.I) else ""
+    result_pass = "YES" if re.search(r"Conclusi[oó]n:?\s*CUMPLE", compact, re.I) else ""
 
     return {
         "provider": provider,
@@ -406,6 +556,10 @@ def extract_header(full_text, pages):
         "document_type": doc_type,
     }
 
+
+# =============================================================================
+# EXTRACCIÓN DE JUEGOS
+# =============================================================================
 
 def get_summary_text(full_text):
     """Limita la extracción de juegos a A.1.1 Resumen, antes de A.1.2 Archivos Críticos."""
@@ -438,11 +592,36 @@ def normalize_game_type(game_type):
     return game_type
 
 
+def split_joined_unique_code(text):
+    """Detecta códigos únicos incluso si el PDF los parte en dos líneas/tokens."""
+    value = clean(text)
+
+    m = re.search(r"([A-Za-z0-9]{12,}_[0-9.]+)$", value)
+    if m:
+        return value[:m.start()].strip(), m.group(1)
+
+    m = re.search(r"([A-Za-z0-9]{8,})\s+([A-Za-z0-9]{6,}_[0-9.]+)$", value)
+    if m:
+        unique_code = f"{m.group(1)}{m.group(2)}"
+        return value[:m.start()].strip(), unique_code
+
+    return value, ""
+
+
+def is_version(value):
+    return bool(RE_VERSION.fullmatch(clean(value)))
+
+
+def is_unique_code(value):
+    value = clean(value)
+    return bool(
+        re.fullmatch(r"[A-Za-z0-9]{12,}_[0-9.]+", value)
+        or re.fullmatch(r"[A-Za-z0-9]{8,}\s+[A-Za-z0-9]{6,}_[0-9.]+", value)
+    )
+
+
 def extract_games_from_compact_summary(summary_text):
-    """
-    Extrae juegos desde tablas convertidas a texto continuo.
-    Soporta tabla simple y tabla con código único.
-    """
+    """Extrae juegos desde tablas convertidas a texto continuo (QUINEL)."""
     games = []
 
     pattern = re.compile(
@@ -460,7 +639,6 @@ def extract_games_from_compact_summary(summary_text):
         version = clean(m.group(3))
         game_type = normalize_game_type(m.group(4))
 
-        # Remueve código único si quedó pegado al nombre.
         name, unique_code = split_joined_unique_code(raw_name)
 
         games.append({
@@ -475,16 +653,12 @@ def extract_games_from_compact_summary(summary_text):
 
 
 def extract_games_from_gli_summary(summary_text):
-    """
-    Extrae juegos desde certificados GLI con columnas:
-    NOMBRE DEL PRODUCTO | CÓDIGO ÚNICO | VERSIÓN | TIPO DE JUEGO | MEDIOS SOPORTADOS.
-    """
+    """Extrae juegos desde certificados GLI con columna CÓDIGO ÚNICO."""
     games = []
 
     header = re.search(
         r"NOMBRE\s+DEL\s+PRODUCTO\s+C[OÓ]DIGO\s+[UÚ]NICO\s+VERSI[OÓ]N\s+TIPO\s+DE\s+JUEGO\s+MEDIOS\s+SOPORTADOS",
-        summary_text,
-        re.I,
+        summary_text, re.I,
     )
     if not header:
         return games
@@ -493,10 +667,8 @@ def extract_games_from_gli_summary(summary_text):
     table_text = re.split(r"\bLa plataforma tecnol[oó]gica\b|\bA\.1\.2\b", table_text, flags=re.I)[0]
     table_text = clean(table_text)
 
-    # Ejemplo:
-    # Jelly Express vs20payanyvol_cv113 cv113.50724 Juego de Tragamonedas HTML5
     row_pattern = re.compile(
-        r"(?P<name>[A-ZÁÉÍÓÚÑ0-9][A-Za-zÁÉÍÓÚÑáéíóúñ0-9+&'’\- .]{1,120}?)\s+"
+        r"(?P<name>[A-ZÁÉÍÓÚÑ0-9][A-Za-zÁÉÍÓÚÑáéíóúñ0-9+&''\- .]{1,120}?)\s+"
         r"(?P<unique>[A-Za-z0-9]+(?:[_-][A-Za-z0-9]+)+)\s+"
         r"(?P<version>(?:cv|v)?\d+(?:\.\d+)+)\s+"
         r"(?P<type>.+?)\s+HTML5\b",
@@ -523,26 +695,13 @@ def extract_games_from_gli_summary(summary_text):
     return games
 
 
-
-
 def extract_games_from_gli_no_code_summary(summary_text):
-    """
-    Extrae juegos desde certificados GLI cuya tabla no trae ITEM ni CÓDIGO ÚNICO.
-
-    Formato detectado en certificados como Amusnet:
-    NOMBRE DEL PRODUCTO | VERSIÓN | TIPO DE JUEGO | MEDIOS SOPORTADOS
-
-    Ejemplo:
-    10 Burning Heart 1.5.0.r Tragamonedas HTML5
-    Jackpot Cards N/A Función progresiva HTML5
-    Virtual Roulette 1.0.0.r Ruleta HTML5
-    """
+    """Extrae juegos desde certificados GLI sin CÓDIGO ÚNICO (ej. Amusnet)."""
     games = []
 
     header = re.search(
         r"NOMBRE\s+DEL\s+PRODUCTO\s+VERSI[OÓ]N\s+TIPO\s+DE\s+JUEGO\s+MEDIOS\s+SOPORTADO\s*S",
-        summary_text,
-        re.I,
+        summary_text, re.I,
     )
     if not header:
         return games
@@ -550,15 +709,14 @@ def extract_games_from_gli_no_code_summary(summary_text):
     table_text = summary_text[header.end():]
     table_text = re.split(
         r"\bLa informaci[oó]n de la plataforma\b|\bA\.1\.2\b|\bArchivos Cr[ií]ticos\b",
-        table_text,
-        flags=re.I,
+        table_text, flags=re.I,
     )[0]
     table_text = clean(table_text)
 
     version_pattern = r"(?:cv|v)?\d+(?:\.\d+){1,3}(?:\.?r)?|N/A"
 
     row_pattern = re.compile(
-        r"(?P<name>[A-ZÁÉÍÓÚÑ0-9][A-Za-zÁÉÍÓÚÑáéíóúñ0-9+&'’\-., ]{1,120}?)\s+"
+        r"(?P<name>[A-ZÁÉÍÓÚÑ0-9][A-Za-zÁÉÍÓÚÑáéíóúñ0-9+&''\-., ]{1,120}?)\s+"
         rf"(?P<version>{version_pattern})\s+"
         r"(?P<type>Tragamonedas|Ruleta|Funci[oó]n\s+progresiva|Juego\s+de\s+[^H]+?)\s+HTML5\b",
         re.I,
@@ -566,13 +724,10 @@ def extract_games_from_gli_no_code_summary(summary_text):
 
     for idx, m in enumerate(row_pattern.finditer(table_text), start=1):
         name = normalize_game_name(m.group("name"))
-        # PyMuPDF puede pegar el footer GLI al primer juego de la página siguiente.
-        # Ejemplo: "SOUTH AMERICA GAMINGLABS.com 20 Bulky Fruits".
         name = re.sub(r"^.*?GAMINGLABS\.com\s+", "", name, flags=re.I).strip()
         version = clean(m.group("version"))
         game_type = normalize_game_type(m.group("type"))
 
-        # Evita falsos positivos de encabezados o textos narrativos.
         if not name or len(name) > 120:
             continue
         if re.search(r"NOMBRE\s+DEL\s+PRODUCTO|VERSI[OÓ]N|TIPO\s+DE\s+JUEGO", name, re.I):
@@ -588,10 +743,9 @@ def extract_games_from_gli_no_code_summary(summary_text):
 
     return games
 
+
 def extract_games_from_lines(pages):
-    """
-    Fallback para PDFs donde la tabla queda partida en líneas.
-    """
+    """Fallback para PDFs donde la tabla queda partida en líneas."""
     games = []
 
     limited_pages = []
@@ -623,20 +777,15 @@ def extract_games_from_lines(pages):
 
                     if is_version(current):
                         break
-
                     if is_unique_code(current):
                         unique_code_parts.append(current)
                         ptr += 1
                         continue
-
                     if re.fullmatch(r"G\d{3}", current):
                         break
-
                     if re.search(r"ITEM|VERSI[OÓ]N|TIPO DE|MEDIOS SOPORTADOS|Código único", current, re.I):
                         ptr += 1
                         continue
-
-                    # Si luce como parte de código único partido, lo guardamos como código.
                     if re.fullmatch(r"[A-Za-z0-9]{8,}", current) or re.fullmatch(r"[A-Za-z0-9]{6,}_[0-9.]+", current):
                         unique_code_parts.append(current)
                     else:
@@ -682,14 +831,12 @@ def extract_games_from_lines(pages):
 def normalize_for_key(value):
     """Normaliza texto para comparar juegos entre distintos extractores."""
     value = clean(value).lower()
-    value = re.sub(r"\s+", " ", value)
-    return value.strip()
+    return re.sub(r"\s+", " ", value).strip()
 
 
 def game_score(game):
     """Puntaje para conservar el registro más completo."""
     score = 0
-
     if clean(game.get("game_name")):
         score += 2
     if clean(game.get("game_type")):
@@ -700,57 +847,34 @@ def game_score(game):
         score += 3
     if clean(game.get("item")):
         score += 1
-
     return score
 
 
 def game_identity_keys(game):
-    """
-    Genera llaves de identidad para detectar duplicados reales.
-
-    En GLI, el mismo juego puede salir desde un extractor como G001
-    y desde otro como GLI001. Por eso no basta deduplicar por item.
-    """
+    """Genera llaves de identidad para detectar duplicados reales."""
     item = normalize_for_key(game.get("item"))
     name = normalize_for_key(game.get("game_name"))
     sample = normalize_for_key(game.get("sample"))
     unique_code = normalize_for_key(game.get("unique_code"))
 
     keys = []
-
     if unique_code:
         keys.append(("unique_code", unique_code))
-
     if name and sample:
         keys.append(("name_sample", name, sample))
-
     if name:
         keys.append(("name", name))
-
     if item:
         keys.append(("item", item))
-
     return keys
 
 
 def dedupe_games(games):
-    """
-    Deduplica juegos por identidad lógica, no solo por item.
-
-    Prioridad:
-    1. Código único.
-    2. Nombre + versión.
-    3. Nombre.
-    4. Item como último recurso.
-
-    Esto evita que un certificado GLI de 30 juegos termine con 60 filas
-    cuando dos extractores leen la misma tabla con identificadores distintos.
-    """
+    """Deduplica juegos por identidad lógica, priorizando el registro más completo."""
     key_to_game = {}
 
     for game in games:
         keys = game_identity_keys(game)
-
         if not keys:
             continue
 
@@ -770,7 +894,6 @@ def dedupe_games(games):
 
     for game in key_to_game.values():
         obj_id = id(game)
-
         if obj_id not in seen_ids:
             unique.append(game)
             seen_ids.add(obj_id)
@@ -782,13 +905,26 @@ def dedupe_games(games):
 
 
 def extract_games(full_text, pages):
+    """
+    Orquesta todos los extractores de juegos.
+
+    Para certificadoras conocidas (GLI, QUINEL) usa extractores específicos.
+    Para documentos GENERIC_CERTIFICATE o UNKNOWN intenta el extractor genérico
+    como último recurso.
+    """
     summary_text = get_summary_text(full_text)
+    doc_type = detect_document_type(full_text)
 
     games = []
     games.extend(extract_games_from_compact_summary(summary_text))
     games.extend(extract_games_from_lines(pages))
     games.extend(extract_games_from_gli_summary(summary_text))
     games.extend(extract_games_from_gli_no_code_summary(summary_text))
+
+    # Para documentos desconocidos, intentar extracción genérica si los
+    # extractores específicos no encontraron nada.
+    if not games and doc_type in ("GENERIC_CERTIFICATE", "UNKNOWN"):
+        games.extend(extract_generic_games(full_text))
 
     cleaned_games = []
     for game in dedupe_games(games):
@@ -797,7 +933,6 @@ def extract_games(full_text, pages):
 
         if not name or not sample:
             continue
-
         if len(name) > 120:
             logging.warning("Juego descartado por nombre demasiado largo: %s", name)
             continue
@@ -811,6 +946,10 @@ def extract_games(full_text, pages):
 
     return cleaned_games
 
+
+# =============================================================================
+# ESCRITURA EN EXCEL
+# =============================================================================
 
 def merged_value(ws, row, col):
     cell = ws.cell(row, col)
@@ -893,9 +1032,6 @@ def fill_excel(template_path, rows, output_path):
 
     style_source_row = data_row
 
-    # Limpieza robusta:
-    # Si la plantilla tenía juegos residuales de procesos anteriores,
-    # se eliminan antes de escribir los nuevos resultados.
     if ws.max_row > data_row:
         ws.delete_rows(data_row + 1, ws.max_row - data_row)
 
@@ -907,29 +1043,35 @@ def fill_excel(template_path, rows, output_path):
     for idx in range(rows_to_create):
         excel_row = data_row + idx
         copy_row_format(ws, style_source_row, excel_row)
-
         for col in range(1, ws.max_column + 1):
             ws.cell(excel_row, col).value = None
 
     for idx, row in enumerate(rows):
         excel_row = data_row + idx
-
         for col, header in fillable_columns.items():
             if header in ALWAYS_BLANK:
                 ws.cell(excel_row, col).value = None
                 continue
-
             field = FIELD_MAP.get(header)
             if not field:
                 continue
-
             value = row.get(field, "")
             ws.cell(excel_row, col).value = value or None
 
     wb.save(output_path)
 
 
+# =============================================================================
+# PROCESAMIENTO PRINCIPAL
+# =============================================================================
+
 def build_rows_for_pdf(pdf):
+    """
+    Procesa un PDF y construye las filas para el Excel.
+
+    El mensaje de auditoría es descriptivo: indica la certificadora detectada
+    y lista exactamente qué campos no se pudieron extraer.
+    """
     pdf_path = Path(pdf)
     full_text, pages = read_pdf_text(pdf_path)
     header = extract_header(full_text, pages)
@@ -948,26 +1090,40 @@ def build_rows_for_pdf(pdf):
     extracted = len(games)
     doc_type = header.get("document_type", "UNKNOWN")
 
+    # ── Diagnóstico detallado ─────────────────────────────────────────────────
     missing_fields = []
-
     if not header.get("report_reference"):
-        missing_fields.append("Report Reference")
-
+        missing_fields.append("Referencia del informe")
     if not header.get("report_date"):
-        missing_fields.append("Report Date")
-
+        missing_fields.append("Fecha del informe")
     if not header.get("provider"):
-        missing_fields.append("Game Provider")
+        missing_fields.append("Proveedor / Game Provider")
+    if not header.get("issued_by"):
+        missing_fields.append("Certificadora (Issued by)")
+
+    certifier_hint = ""
+    if doc_type in ("GENERIC_CERTIFICATE", "UNKNOWN"):
+        detected = try_detect_certifier(re.sub(r"\s+", " ", full_text))
+        if detected:
+            certifier_hint = (
+                f" Empresa detectada: '{detected}'. "
+                f"Agrégala en KNOWN_CERTIFIERS en generar_excel.py para extracción completa."
+            )
+        else:
+            certifier_hint = (
+                " No se identificó la certificadora. "
+                "Verifica que el PDF corresponda a un certificado de cumplimiento."
+            )
 
     if extracted == 0:
         status = "REVISAR"
-        message = f"No se extrajeron juegos. Tipo detectado: {doc_type}"
+        message = f"No se extrajeron juegos. Tipo detectado: {doc_type}.{certifier_hint}"
     elif expected is not None and expected != extracted:
         status = "REVISAR"
-        message = f"Esperados {expected}, extraídos {extracted}"
+        message = f"Esperados {expected}, extraídos {extracted}."
     elif missing_fields:
         status = "REVISAR"
-        message = "Campos faltantes: " + ", ".join(missing_fields)
+        message = "Campos no extraídos: " + ", ".join(missing_fields) + "." + certifier_hint
     else:
         status = "OK"
         message = ""
@@ -1008,7 +1164,6 @@ def resolve_pdfs(pdf_args, pdf_dir):
             raise FileNotFoundError(f"No existe la carpeta de PDFs: {pdf_dir}")
         pdfs.extend(sorted(pdf_dir.glob("*.pdf")))
 
-    # Deduplicar preservando orden.
     seen = set()
     unique_pdfs = []
     for pdf in pdfs:
