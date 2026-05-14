@@ -158,8 +158,23 @@ def detect_document_type(full_text):
     """
     compact = re.sub(r"\s+", " ", full_text).lower()
 
-    if "resolución directoral" in compact or "resolucion directoral" in compact:
-        return "MINCETUR_RESOLUTION"
+    # MINCETUR tiene prioridad absoluta sobre cualquier certificadora.
+    # "Resolución Directoral" suele ser una imagen decorativa en el PDF, por lo que
+    # PyMuPDF no siempre extrae ese texto. Se usan patrones alternativos robustos:
+    # el número de resolución, el código de expediente o la presencia del Artículo 1°
+    # con registros PJ (formato exclusivo de Resoluciones Directorales MINCETUR).
+    mincetur_signals = [
+        "resolución directoral",
+        "resolucion directoral",
+        r"\d{4}-\d{4}-mincetur/vmt/dgjcmt",   # N° 3021-2024-MINCETUR/VMT/DGJCMT
+        r"\d+-\d{4}-mincetur",                  # Expediente N° 1646789-2024-MINCETUR
+        "vmt/dgjcmt",                           # código de dirección MINCETUR
+        "se resuelve:",                         # fórmula resolutiva oficial
+        "pj0",                                  # prefijo de número de registro MINCETUR
+    ]
+    for signal in mincetur_signals:
+        if re.search(signal, compact, re.I):
+            return "MINCETUR_RESOLUTION"
 
     for certifier, keywords in KNOWN_CERTIFIERS.items():
         if any(kw in compact for kw in keywords):
@@ -1091,6 +1106,22 @@ def build_rows_for_pdf(pdf):
     doc_type = header.get("document_type", "UNKNOWN")
 
     # ── Diagnóstico detallado ─────────────────────────────────────────────────
+
+    # Caso especial: Resolución Directoral subida en el tab de Certificados.
+    if doc_type == "MINCETUR_RESOLUTION":
+        return rows, {
+            "pdf": pdf_path.name,
+            "document_type": doc_type,
+            "report_reference": "",
+            "expected_games": "",
+            "extracted_games": 0,
+            "status": "REVISAR",
+            "message": (
+                "Este archivo es una Resolución Directoral MINCETUR, no un certificado GLI/QUINEL. "
+                "Procésalo desde el tab '\U0001f3db\ufe0f Resoluciones MINCETUR'."
+            ),
+        }
+
     missing_fields = []
     if not header.get("report_reference"):
         missing_fields.append("Referencia del informe")
