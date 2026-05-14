@@ -185,15 +185,70 @@ def detect_tipo_componente(full_text):
 
 def normalize_broken_code(value):
     """
-    Une códigos que el PDF puede partir en varias líneas.
+    Une códigos que el PDF puede partir en varias líneas por salto de columna.
 
-    Ejemplo:
-    vs20payanyvol_cv1 13 -> vs20payanyvol_cv113
+    Ejemplos:
+    vs20payanyvol_cv1 13            -> vs20payanyvol_cv113
+    slot-logi c-client.jar          -> slot-logic-client.jar
+    slot-logic -client.jar          -> slot-logic-client.jar
+    100 Power : Hot_games-hph-...   -> 100 Power Hot_games-hph-...
     """
     value = clean(value)
+    # Elimina artefactos de ":" que aparecen en saltos de página MINCETUR
+    value = re.sub(r"^\s*:\s*", "", value)
+    value = re.sub(r"\s*:\s*$", "", value)
+    value = re.sub(r"\s+:\s+", " ", value)
+    # Une sufijos _cv partidos
     value = re.sub(r"_cv\s+(\d+)", r"_cv\1", value, flags=re.I)
     value = re.sub(r"_cv(\d+)\s+(\d+)", r"_cv\1\2", value, flags=re.I)
-    return value
+    # Une partes de .jar partidas con espacio antes del guión: "logi c-client.jar" → "logic-client.jar"
+    value = re.sub(r"([a-z0-9])\s+(-[a-z])", r"\1\2", value)
+    # Une sílabas partidas dentro de palabras del código: "logi\nc" → "logic"
+    value = re.sub(r"([a-z])\s+([a-z](?=[a-z0-9\-]))", r"\1\2", value)
+    return value.strip()
+
+
+def _strip_mincetur_noise(text):
+    """
+    Elimina el pie de página y los encabezados de tabla repetidos en PDFs MINCETUR.
+
+    Cada hoja del PDF tiene un pie de autenticidad y cuando la tabla cruza un salto
+    de página el encabezado de columnas se repite, contaminando la extracción.
+    También elimina la tabla del Considerando (antes del Artículo 1°) que tiene
+    columnas distintas (incluye Laboratorio y N° Certificado) para que el parser
+    solo procese la tabla resolutiva del Artículo 1°.
+    """
+    # Pie de página de autenticidad (termina con el código de verificación alfanumérico)
+    text = re.sub(
+        r"Esta es un copia aut[eé]ntica imprimible.+?ingresando la siguiente clave:\s*\S+",
+        " ",
+        text,
+        flags=re.I | re.DOTALL,
+    )
+    # Firma digital al inicio de algunas páginas
+    text = re.sub(
+        r"Firmado digitalmente por.+?-\d{4}",
+        " ",
+        text,
+        flags=re.I | re.DOTALL,
+    )
+    # Encabezado de tabla del Artículo 1° duplicado cuando cruza un salto de página
+    text = re.sub(
+        r"N[°º]\s*N[°º]\s*REGISTRO\s+NOMBRE\s+DEL\s+FABRICANTE.+?C[OÓ]DIGO\s+DE\s+IDENTIFICACI[OÓ]N",
+        " ",
+        text,
+        flags=re.I | re.DOTALL,
+    )
+    # Encabezado de tabla del Considerando (tiene columnas Laboratorio + N° Certificado)
+    # Se elimina TODO el bloque de la tabla del Considerando para evitar que el parser
+    # confunda sus filas con las del Artículo 1°
+    text = re.sub(
+        r"N[°º]\s+NOMBRE\s+COMERCIAL\s+VERSION\s+CODIGO\s+DE\s+IDENTIFICACION.+?(?=SE\s+RESUELVE|Art[íi]culo\s+1)",
+        " ",
+        text,
+        flags=re.I | re.DOTALL,
+    )
+    return text
 
 
 def extract_resolution_manufacturer(full_text):
@@ -270,12 +325,14 @@ def extract_mincetur_resolution_rows(pdf_path):
     N° REGISTRO | NOMBRE DEL FABRICANTE | NOMBRE COMERCIAL DEL JUEGO | VERSIÓN | CÓDIGO DE IDENTIFICACIÓN
     """
     full_text, _ = read_pdf_text(pdf_path)
+    full_text = _strip_mincetur_noise(full_text)
     tipo_componente = detect_tipo_componente(full_text)
     manufacturer = extract_resolution_manufacturer(full_text)
 
     compact = re.sub(r"\s+", " ", full_text)
 
-    article_match = re.search(r"Artículo\s+1\.?-", compact, re.I)
+    # El PDF puede tener "Artículo 1º.-" (con ordinal º o °) o "Artículo 1.-"
+    article_match = re.search(r"Art[íi]culo\s+1[°º]?\s*\.?-", compact, re.I)
     if article_match:
         search_text = compact[article_match.start():]
     else:
@@ -285,12 +342,15 @@ def extract_mincetur_resolution_rows(pdf_path):
 
     # En el texto extraído, las columnas quedan unidas. Por eso se toma todo
     # entre N° REGISTRO y VERSIÓN como "middle" y luego se elimina el fabricante.
+    # El código de identificación puede contener espacios (ej: "100 Burning Hot_Paytable")
+    # y versiones con sufijo .r (ej: 1.5.0.r).
     pattern = re.compile(
         r"\b(?P<n>\d+)\s+"
         r"(?P<registro>PJ\d{7})\s+"
         r"(?P<middle>.+?)\s+"
-        r"(?P<version>(?:cv|v)?\d+(?:\.\d+)+)\s+"
-        r"(?P<codigo>[A-Za-z0-9]+(?:[_-][A-Za-z0-9]+)*(?:\s+\d+)?)(?=\s+\d+\s+PJ\d{7}|\s+Artículo\s+2|$)",
+        r"(?P<version>(?:cv|v)?\d+(?:\.\d+)+(?:\.?r)?)\s+"
+        r"(?P<codigo>.+?)"
+        r"(?=\s+\d+\s+PJ\d{7}|\s+Art[íi]culo\s+2|\s*$)",
         re.I,
     )
 
@@ -299,11 +359,34 @@ def extract_mincetur_resolution_rows(pdf_path):
     for match in pattern.finditer(search_text):
         middle = clean(match.group("middle"))
         nombre = strip_known_manufacturer(middle, manufacturer)
-        codigo = normalize_broken_code(match.group("codigo"))
+        codigo_raw = match.group("codigo")
+        # Elimina contaminación de sufijo corporativo por salto de página
+        # Ejemplo: "100 Power Ltd. Hot_games-..." → "100 Power Hot_games-..."
+        codigo_raw = re.sub(
+            r"\b(?:[A-ZÁÉÍÓÚÑ][A-Za-záéíóúñ]+\s+)*(?:Ltd\.?|LLC|Limited|Inc\.?|Corp\.?)\s+",
+            "",
+            codigo_raw,
+            flags=re.I,
+        ).strip()
+        codigo = normalize_broken_code(codigo_raw)
         registro = clean(match.group("registro"))
 
         nombre = re.sub(r"^NOMBRE\s+COMERCIAL\s+DEL\s+JUEGO\s+", "", nombre, flags=re.I).strip()
         nombre = re.sub(r"^NOMBRE\s+COMERCIAL\s+", "", nombre, flags=re.I).strip()
+
+        # FIX: cuando la fila está partida entre páginas, el nombre del fabricante
+        # queda incompleto (sin Ltd./LLC) delante del nombre comercial.
+        # Ej: "Amusnet Interactive 100 Power Hot" → "100 Power Hot"
+        # Se elimina cualquier prefijo de palabras en mayúscula que precede al nombre real.
+        if manufacturer:
+            tokens = manufacturer.split()
+            for end in range(len(tokens), 0, -1):
+                prefix = " ".join(tokens[:end])
+                prefix_pattern = r"\s+".join(re.escape(t) for t in tokens[:end])
+                new_nombre = re.sub(rf"^{prefix_pattern}\s+", "", nombre, flags=re.I).strip()
+                if new_nombre != nombre and new_nombre:
+                    nombre = new_nombre
+                    break
 
         if not nombre or len(nombre) > 100:
             continue
